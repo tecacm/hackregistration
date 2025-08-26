@@ -22,6 +22,7 @@ from app.utils import is_installed
 
 urlpatterns = [
     path('', views.BaseView.as_view(), name='home'),
+    path('upload-too-large/', views.UploadTooLarge.as_view(), name='upload_too_large'),
     path('legal_notice/', views.LegalNotice.as_view(), name='legal_notice'),
     path('terms_and_conditions/', views.TermsConditions.as_view(), name='terms_and_conditions'),
     path('privacy_and_cookies/', views.PrivacyCookies.as_view(), name='privacy_and_cookies'),

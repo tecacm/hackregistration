@@ -57,6 +57,21 @@ def get_date(text):
 
 
 def app_variables(request):
+    # Compute whether to show re-entry disclaimer only in the week before the event
+    hack_start_dt = get_date(getattr(settings, 'HACKATHON_START_DATE', ''))
+    now_date = timezone.localdate()
+    show_reentry_disclaimer = False
+    show_devpost_until_start = True
+    if hack_start_dt is not None:
+        try:
+            start_date = hack_start_dt.date()
+        except AttributeError:
+            # If get_date returns a date already
+            start_date = hack_start_dt
+        days_until = (start_date - now_date).days
+        show_reentry_disclaimer = 0 <= days_until <= 7
+    # Devpost visible starting on the start date (hidden before the event day)
+    show_devpost_until_start = now_date >= start_date
     return {
         'main_nav': get_main_nav(request),
         'app_hack': getattr(settings, 'HACKATHON_NAME'),
@@ -76,4 +91,6 @@ def app_variables(request):
         'hack_start_date': get_date(getattr(settings, 'HACKATHON_START_DATE', '')),
         'hack_end_date': get_date(getattr(settings, 'HACKATHON_END_DATE', '')),
         'hack_location': getattr(settings, 'HACKATHON_LOCATION', ''),
+    'show_reentry_disclaimer': show_reentry_disclaimer,
+    'show_devpost_until_start': show_devpost_until_start,
     }

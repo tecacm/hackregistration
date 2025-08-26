@@ -132,7 +132,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     ]
 
     first_name = models.CharField(_("first name"), max_length=150)
-    last_name = models.CharField(_("last names"), max_length=150)
+    last_name = models.CharField(_("last name(s)"), max_length=150)
     email = models.EmailField(_("email address"), unique=True, validators=[disposable_email])
     email_verified = models.BooleanField(_('email verified'), default=False)
     email_subscribe = models.BooleanField(_('email subscribed'), default=False)
@@ -159,11 +159,26 @@ class User(AbstractBaseUser, PermissionsMixin):
     gender = models.CharField(max_length=23, choices=GENDERS, default=GENDER_NO_ANSWER)
     other_gender = models.CharField(max_length=50, blank=True, null=True)
 
-    under_age = models.BooleanField(default=False)
+    birth_date = models.DateField(null=True, blank=True)
+
+    @property
+    def age(self):
+        if not self.birth_date:
+            return None
+        today = timezone.now().date()
+        return today.year - self.birth_date.year - ((today.month, today.day) < (self.birth_date.month, self.birth_date.day))
+
+    @property
+    def under_age(self):
+        if not self.birth_date:
+            return None
+        today = timezone.now().date()
+        return (today.year - self.birth_date.year - 
+                ((today.month, today.day) < (self.birth_date.month, self.birth_date.day))) < 18
 
     phone_number = models.CharField(validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$')], blank=True, max_length=20,
-                                    help_text=_("Phone number must be entered in the format: +#########'. "
-                                                "Up to 15 digits allowed."))
+                                    help_text=_('Phone number must be entered in the format: +#########. Up to 15 digits allowed.'))
+    level_of_study = models.CharField(max_length=120, blank=True, null=True)
 
     qr_code = models.CharField(max_length=getattr(settings, 'QR_CODE_LENGTH', 16), blank=True, db_index=True)
 
@@ -198,6 +213,9 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def is_organizer(self):
         return self.groups.filter(name='Organizer').exists()
+
+    def is_sponsor(self):
+        return self.groups.filter(name='Sponsor').exists()
 
     def set_unknown(self):
         self.is_active = False

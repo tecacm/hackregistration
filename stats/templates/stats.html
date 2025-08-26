@@ -13,7 +13,29 @@
         </div>
         <div class="col-lg-2">
             <div class="col-12 d-grid d-md-block">
-                <button type="button" class="btn btn-secondary col-12" data-bs-toggle="modal" data-bs-target="#filterModal">Filter</button>
+                <button type="button" class="btn btn-secondary col-12 mb-2" data-bs-toggle="modal" data-bs-target="#filterModal">Filter</button>
+                {% if request.user.is_authenticated and (request.user.is_organizer or request.user.is_sponsor) %}
+                    {% if name|lower == 'application' %}
+                    <a id="download_resumes_btn" href="#" class="btn btn-primary col-12 mt-2">Download all CVs</a>
+                    <script nonce="{{ request.csp_nonce }}">
+                        $(document).ready(() => {
+                            function currentQuery() {
+                                return $.param({
+                                    ...Object.fromEntries(new URLSearchParams(location.hash.replace('#','')))
+                                }, true)
+                            }
+                            function updateDownload() {
+                                const q = currentQuery();
+                                const href = "{% url 'stats_download_resumes' name %}" + (q ? ('?' + q) : '');
+                                $('#download_resumes_btn').attr('href', href);
+                            }
+                            updateDownload();
+                            $('#filter_button').on('click', updateDownload);
+                            $('#update_cache').on('click', updateDownload);
+                        });
+                    </script>
+                    {% endif %}
+                {% endif %}
             </div>
         </div>
     </div>
@@ -47,7 +69,7 @@
         $(document).ready(() => {
             function convert_data(field_name, data_field) {
                 return Object.keys(data_field).map((key) => {
-                    let item = { {{ name }}: data_field[key]}
+                    let item = {}; item['{{ name }}'] = data_field[key]
                     item[field_name] = key
                     return item
                 })

@@ -1,51 +1,287 @@
-<br>
 <p align="center">
-  <img alt="HackAssistant" src="https://avatars2.githubusercontent.com/u/33712329?s=200&v=4" width="200"/>
+  <img alt="HackAssistant" src="https://avatars2.githubusercontent.com/u/33712329?s=200&v=4" width="160" />
+  <h1 align="center">HackAssistant – Hackathon Registration & Operations Platform</h1>
+  <p align="center">
+    Modern, extensible and privacy‑aware Django backend for managing hackathon applications, teams, logistics and stats.
+  </p>
 </p>
-<br>
 
-📝 Hackathon registration server. Remake of the [HackAssistant/registration](https://github.com/HackAssistant/registration) in order to improve the future development and maintainability. 
+---
 
-## Features
+## 1. Overview
 
-- Email sign up ✉️
-- Email verification 📨
-- Forgot password 🤔
-- Ip block on failed login tries & ip blocklist ✋ (Optional)
-- Dark mode 🌚 🌝 Light mode (Optional)
+HackAssistant is a modern re‑implementation of the original
+[HackAssistant/registration](https://github.com/HackAssistant/registration) and is
+heavily based on the upstream
+[HackAssistant/hackassistant](https://github.com/HackAssistant/hackassistant)
+project. Full credit to the HackAssistant maintainers and contributors.
+This fork focuses on:
 
-## Documentation
+- Maintainability (modular apps, mixins, documented utilities)
+- Privacy & compliance (age anonymization, explicit consents)
+- Extensibility (pluggable apps: friends/teams, messages, meals, stats, tables)
+- Operational visibility (stats & tables, export formats, cron jobs)
+- Security hardening (brute force protection, admin honeypot, CSP, password history, reCAPTCHA)
 
-There's a really extended documentation for configurations or development of the application [here](/docs/README.md).
+This repository powers the official registration and attendee operations platform for **HackMTY** and includes event‑specific tweaks.
 
-## Development
+Highlights adapted for HackMTY:
+- Consent ordering tuned for local policies first
+- Age privacy layer (integer age → synthetic birth_date)
+- Mandatory phone number & stricter validations for on‑site logistics
+- Centralized Level of Study synced to profile
+- Admissions workflow with Invite, Waitlist and Reject actions (distinct statuses and emails)
+- Friends (teams) with capacity and Devpost project link capture (visible starting on the event day)
+- Event banners and date‑gated disclaimers (e.g., no re‑entry window)
 
-The development if this Django app can be made by Python or Docker-Compose. 
-We recommend the use of Docker.
+---
 
-## Docker-Compose
+## 2. Features
 
-Needs: Docker, Docker-Compose
+Accounts & Security
+- Email registration & login (django‑allauth)
+- Email verification & password reset
+- Password reuse prevention (history) + composition validators
+- Brute force mitigation with django‑axes (IP cool‑off)
+- Admin honeypot and CSP defaults
 
-- `./install.sh` (Creates virtualenviroment, install requirements.txt and migrates DB)
-- `docker-compose up` (Starts server)
+Applications
+- Configurable application types (Hacker, Volunteer, Mentor, Sponsor)
+  - Hidden types with token-gated apply links for private programs (e.g., Sponsor). Rotate tokens from admin.
+- Extra dynamic fields stored as JSON (`form_data`) + file uploads with overwrite
+- Promotional codes, custom consents, MLH‑style policy capture
+- Invite / Waitlist / Reject organizer actions and tailored emails
 
-That is all! 😃 If you need to run any python command just do as the following examples:
+Teams (Friends)
+- Join by code, leave, capacity limit (configurable)
+- Team closed when any member is invited/confirmed/attended
+- Full teams can attach a Devpost URL (editing enabled for team members; card visible from the event start date)
 
-- Install new library: `docker-compose run python -m pip install [library]`
-- Make migrations: `docker-compose run python manage.py makemigrations`
-- Migrate: `docker-compose run python manage.py migrate`
+Organizer tooling
+- Review list and actions, stats with filters, exportable tables
+- Admin panel for teams: list by code, counts, filters, CSV export, deep links
 
-### Python
+Event ops
+- Messages and meals sub‑apps (optional)
+- Cron jobs for invitation expiry and housekeeping
 
-Needs: Python 3.X, virtualenv
+UI/UX
+- Bootstrap 5 forms and layout helpers
+- Light/Dark themes (both available)
 
-Stable at Python v.3.8.X and 3.10 (tested at Python 3.8.17 and 3.10)
+---
 
-- `git clone git@github.com:HackAssistant/hackassistant.git && cd hackassistant`
-- `virtualenv env --python=python3`
-- `source ./env/bin/activate`
-- `pip install -r requirements.txt`
-- `python manage.py migrate`
-- `python manage.py createadmin` (creates admin to manage all the app: CUSTOM COMMAND!)
-- `python manage.py runserver localhost:8000` (specifies to localhost, since admin is created under that specific domain, otherwise it wont work)
+## 3. Repository structure (key directories)
+
+```
+app/                Global project (settings, urls, templates, middlewares, logging, theme)
+application/        Application model & type‑specific forms (Hacker, Mentor, etc.)
+user/               Custom user model, forms, profile logic, choices
+review/             Review workflows (organizer tools)
+stats/              Statistics generation & filtering
+tables/             Table utilities & views
+friends/            Teaming (join/leave, capacity, Devpost)
+event/              Event domain (messages, meals sub‑apps)
+files/              Uploaded resume & file storage
+staticfiles/        Collected & hashed static assets (production)
+production/         Production docker-compose & scripts
+```
+
+---
+
+## 4. Tech stack
+
+- Django 4.2, Python 3.9/3.10
+- Auth: django‑allauth; JWT/OIDC provider mode available (django‑jwt‑oidc)
+- Security: django‑axes, admin‑honeypot, CSP, password validators, reCAPTCHA
+- UI: Bootstrap 5 (django‑bootstrap5)
+- Tables/Export: django‑tables2 + tablib formats
+- Email: AnyMail (Mandrill) with file‑based fallback in DEBUG
+- Scheduling: django‑crontab
+- Assets: django‑compressor, libsass, ManifestStaticFilesStorage
+
+---
+
+## 5. Quick start (Docker)
+
+Prerequisites: Docker, Docker Compose.
+
+```bash
+git clone https://github.com/HackAssistant/hackassistant.git
+cd hackassistant
+./install.sh             # sets up virtualenv, installs deps, applies migrations (ok to run with docker)
+docker-compose up        # launches dev server at http://localhost:8000
+```
+
+Common dev commands:
+
+```bash
+docker-compose run python manage.py makemigrations
+docker-compose run python manage.py migrate
+docker-compose run python manage.py createadmin
+docker-compose run python -m pip install <library>
+```
+
+Static & compress (optional locally):
+
+```bash
+docker-compose run python manage.py collectstatic --noinput
+docker-compose run python manage.py compress --force
+```
+
+---
+
+## 6. Quick start (Local venv)
+
+Prerequisites: Python 3.9+.
+
+```bash
+git clone https://github.com/HackAssistant/hackassistant.git
+cd hackassistant
+python -m venv env
+source env/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py createadmin   # creates initial organizer admin
+python manage.py runserver 0.0.0.0:8000
+```
+
+---
+
+## 7. Environment variables (selected)
+
+| Variable | Purpose | Default / Notes |
+|----------|---------|-----------------|
+| SECRET_KEY | Django secret key | required |
+| PROD_MODE | Toggle production security flags | False |
+| ALLOWED_HOSTS | Comma separated hosts | empty (+ localhost in DEBUG) |
+| DB_ENGINE | sqlite3 / postgresql / mysql / oracle | sqlite3 |
+| DB_NAME / DB_USER / DB_PASSWORD / DB_HOST / DB_PORT | DB credentials (non‑sqlite) | — |
+| GOOGLE_RECAPTCHA_SITE_KEY / GOOGLE_RECAPTCHA_SECRET_KEY | reCAPTCHA keys | optional |
+| AXES_FAILURE_LIMIT | Brute force attempt limit | default 6 here |
+| AXES_ENABLED | Enable django‑axes | not DEBUG |
+| ADMIN_URL | Secret admin path | secret/ |
+| OIDC_DISCOVERY_ENDPOINT | JWT/OIDC provider discovery | local default |
+| HACKATHON_START_DATE / HACKATHON_END_DATE | dd/mm/YYYY | drives event gating (e.g., disclaimers, Devpost card) |
+
+See `app/settings.py` and `app/hackathon_variables.py` for more.
+
+---
+
+## 8. Model & workflows
+
+User (`user.User`)
+- Email is the primary credential; extended demographics; synthetic birth_date from age input.
+
+Application (`application.Application`)
+- One per type and edition; extra fields inside `form_data` JSON. Files stored under `<edition>/<type>/<field>/<name>_<uuid>.<ext>`.
+- Organizer actions support Invite, Waitlist, Reject with dedicated emails.
+- Cancelling a Hacker application removes the user from their team and frees a spot.
+
+Teams (Friends)
+- Join by code; leave any time; team closes if any member is invited/confirmed/attended.
+- Capacity enforced via `FRIENDS_MAX_CAPACITY`.
+- When full, a Devpost URL card appears starting on the event day for members to add/edit the project link.
+
+Stats & Tables
+- Aggregated metrics and exportable tables for operational insight.
+
+---
+
+## 9. Security & privacy
+
+- Axes login throttling (5‑minute cool‑off) and configurable attempt limit
+- Admin honeypot, CSP headers, secure cookies (when PROD_MODE=true)
+- Password history and composition validators
+- reCAPTCHA protection
+
+---
+
+## 10. Cron jobs (django‑crontab)
+
+Typical jobs include invitation expiry and housekeeping. Register on boot via `python manage.py crontab add`.
+
+List / remove:
+```bash
+python manage.py crontab show
+python manage.py crontab remove
+```
+
+---
+
+## 11. Deployment notes
+
+- Prefer a reverse proxy (nginx/traefik) in front of gunicorn.
+- Recommended 5 MB upload limit and friendly 413 redirect:
+
+```nginx
+client_max_body_size 5m;
+error_page 413 =302 /upload-too-large/;
+```
+
+- Example production compose in `production/docker-compose.yml`.
+
+---
+
+## 12. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| 413 on upload | Proxy limit | Set `client_max_body_size` and friendly redirect |
+| Missing static | Not collected | `manage.py collectstatic` |
+| 403 on /application for organizers | Intentional to keep reviewer UI clean | Use reviewer pages or adjust `ApplicationHome.dispatch` |
+
+| Hidden Sponsor link returns 404 | Missing/invalid token | Use the share link shown in Admin > Application type > Sponsor, or rotate token via action |
+
+---
+
+## 13. Contributing
+
+1. Fork and branch (`feature/<short>`)
+2. Keep patches focused; update docs
+3. Run linters and Django checks
+4. Open PR with context and screenshots (for UI)
+
+---
+
+## 14. License & security
+
+Distributed under the project LICENSE. For security issues, follow `SECURITY.md` and avoid public issues.
+
+---
+
+## 15. Quick commands
+
+```bash
+# Dev up (docker)
+docker-compose up
+
+# Migrations
+docker-compose run python manage.py makemigrations
+docker-compose run python manage.py migrate
+
+# Create admin
+docker-compose run python manage.py createadmin
+
+# Static & compress
+docker-compose run python manage.py collectstatic --noinput
+docker-compose run python manage.py compress --force
+
+# Cron jobs
+docker-compose run python manage.py crontab show
+```
+
+---
+
+Happy hacking! 🚀
+
+---
+
+## 16. Acknowledgements
+
+- This project is built on the shoulders of
+  [HackAssistant/hackassistant](https://github.com/HackAssistant/hackassistant)
+  and the original
+  [HackAssistant/registration](https://github.com/HackAssistant/registration).
+  Huge thanks to all maintainers and contributors of the upstream projects.

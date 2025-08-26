@@ -5,18 +5,46 @@
     <h1>{% translate "Apply with friends" %}</h1>
     <p>{% translate 'Form a group of friends to apply together. Please keep in mind:' %}</p>
     <ul>
-        <li>{% translate 'The group of friends created does not have to be the final team for the hackathon.' %}</li>
+        <li>{% translate 'The group of friends created has to be the final team for the hackathon.' %}</li>
         <li>{% translate 'If one member of the group is invited, the group will no longer be open to new members.' %}</li>
         <li>{% translate 'The likelihood of the entire group being invited increases when half of the group is already invited.' %}</li>
         {% if friends_max_capacity is not None %}
             <li>{% translate 'Max group capacity:' %} {{ friends_max_capacity }}</li>
         {% endif %}
+    <li>{% translate "Already invited/confirmed/attended participants may switch teams: leave your current team and then join a new one, but only if the new team's members are under the same status, that is invited." %}</li>
+    <li>{% translate 'Participants who are not invited/confirmed/attended cannot join a team that already includes an invited member.' %}</li>
     </ul>
     <form method="post" id="invite-form">
         {% csrf_token %}
         {% include 'components/bootstrap5_form.html' with form=friends_form %}
         {% if friends_code %}
             <p>{% translate "Your friend group's code:" %} {{ friends_code.code }}</p>
+            {% if friends_max_capacity %}
+                <p>{% translate "Team members:" %} {{ members_count }}/{{ friends_max_capacity }}</p>
+                {% if members_count >= friends_max_capacity %}
+                    <div class="alert alert-warning" role="alert">
+                        {% translate "This group is full." %}
+                    </div>
+                {% endif %}
+                {% if members_count >= friends_max_capacity and show_devpost_until_start %}
+                    <div class="card mt-2">
+                        <div class="card-body">
+                            <h5 class="card-title">{% translate "Project Devpost" %}</h5>
+                            {% if friends_code.devpost_url %}
+                                <p class="mb-2"><a class="link-primary" href="{{ friends_code.devpost_url }}" target="_blank" rel="noopener noreferrer">{{ friends_code.devpost_url }}</a></p>
+                            {% endif %}
+                            <form method="post">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="set_devpost" />
+                                {% include 'components/bootstrap5_form.html' with form=devpost_form %}
+                                <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
+                                    <button class="btn btn-primary" type="submit">{% translate 'Save Devpost URL' %}</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                {% endif %}
+            {% endif %}
             <ul>
                 {% for member in friends_code.get_members %}
                     <li>{{ member.user.get_full_name }}</li>

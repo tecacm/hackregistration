@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% load i18n %}
+{% block subtitle %}{% translate 'Upload too large' %}{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <div class="alert alert-warning" role="alert">
+    <h4 class="alert-heading">{% translate 'File too large' %}</h4>
+    <p>{% translate 'Your file exceeds the maximum allowed size of 5 MB.' %}</p>
+    <hr>
+    <p class="mb-0">{% translate 'Please compress your PDF or export a lighter version and try again.' %}</p>
+  </div>
+  <a href="javascript:history.back()" class="btn btn-secondary">{% translate 'Go back' %}</a>
+</div>
+{% endblock %}

@@ -34,6 +34,28 @@ class LoginRequiredMixin(CustomAccessMixin):
 class IsOrganizerMixin(LoginRequiredMixin):
     def handle_permissions(self, request):
         response = super().handle_permissions(request)
-        if response is None and not request.user.is_organizer:
+        # IMPORTANT: call the method is_organizer() (previously missing parentheses made this always truthy)
+        if response is None and not request.user.is_organizer():
             return self.handle_no_permission()
         return response
+
+
+class IsSponsorOrOrganizerMixin(LoginRequiredMixin):
+    def handle_permissions(self, request):
+        response = super().handle_permissions(request)
+        if response is None and not (request.user.is_organizer() or getattr(request.user, 'is_sponsor', lambda: False)()):
+            return self.handle_no_permission()
+        return response
+
+
+class IsOrganizerOrSponsorMixin(LoginRequiredMixin):
+    def handle_permissions(self, request):
+        response = super().handle_permissions(request)
+        if response is not None:
+            return response
+        user = request.user
+        is_org = user.is_organizer()
+        is_sponsor = user.groups.filter(name='Sponsor').exists()
+        if not (is_org or is_sponsor):
+            return self.handle_no_permission()
+        return None

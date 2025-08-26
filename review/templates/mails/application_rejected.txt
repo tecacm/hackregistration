@@ -1,0 +1,7 @@
+{% load i18n %}
+{% blocktrans with name=application.user.first_name %}Hi {{ name }},{% endblocktrans %}
+{% translate "Thank you for applying to our hackathon." %}
+{% translate "After careful review, we’re unable to offer you a spot this year." %}
+{% translate "We received many strong applications and had limited spots. We encourage you to apply again next year." %}
+{% translate "Best of luck, and thank you for your interest." %}
+{% translate "The Organizing Team" %}

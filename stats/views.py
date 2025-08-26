@@ -1,4 +1,9 @@
-from django.http import Http404, JsonResponse
+import os
+from io import BytesIO
+from zipfile import ZipFile
+
+from django.conf import settings
+from django.http import Http404, JsonResponse, HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.views import View
@@ -10,14 +15,14 @@ from stats import filters
 from stats import stats
 from stats.mixins import StatsPermissionRequiredMixin
 from stats.utils import cache_stats
-from user.mixins import IsOrganizerMixin
+from user.mixins import IsOrganizerOrSponsorMixin
 from user.models import User
 
 
 MODELS = ['user', 'application']
 
 
-class StatsHome(IsOrganizerMixin, View):
+class StatsHome(IsOrganizerOrSponsorMixin, View):
     def get(self, request, *args, **kwargs):
         final_model = MODELS[0]
         if not request.user.has_perms(['stats.view_stats']):
@@ -55,7 +60,14 @@ class StatsView(StatsPermissionRequiredMixin, TabsViewMixin, StatsMixin, Templat
         model_name = self.kwargs.get('model', '').lower().title()
         filter_class = self.get_filter_class(model_name)
         stats_class = self.get_stats_class(model_name)
-        context.update({'filter': filter_class(), 'name': model_name, 'stats': stats_class()})
+        user = self.request.user
+        can_download = False
+        if user.is_authenticated:
+            try:
+                can_download = user.is_organizer() or user.groups.filter(name='Sponsor').exists()
+            except Exception:
+                can_download = False
+        context.update({'filter': filter_class(), 'name': model_name, 'stats': stats_class(), 'can_download': can_download})
         return context
 
 
@@ -92,3 +104,51 @@ class StatsDataView(StatsPermissionRequiredMixin, StatsMixin, View):
         stats_class = self.get_stats_class(model_name)
         data = self.get_stats(model_name, filter_class, stats_class)
         return JsonResponse(data)
+
+
+class StatsDownloadResumesView(StatsPermissionRequiredMixin, StatsMixin, View):
+    permission_required = ['stats.view_stats']
+
+    def get(self, request, *args, **kwargs):
+        model_name = kwargs.get('model', '').lower().title()
+        if model_name != 'Application':
+            raise Http404()
+        # Optional filters might be applied in future; for now, download all actual applications for current type
+        app_type = request.GET.get('type', 'Hacker')
+        qs = get_application_queryset().filter(type__name=app_type)
+        s = BytesIO()
+        added = 0
+        with ZipFile(s, 'w') as zf:
+            for app in qs:
+                data = getattr(app, 'form_data', {}) or {}
+                # Respect resume_share flag
+                if not data.get('resume_share', False):
+                    continue
+                resume = data.get('resume') or data.get('cv') or data.get('curriculum')
+                if not resume:
+                    for k, v in data.items():
+                        if isinstance(v, dict) and v.get('type') == 'file':
+                            resume = v
+                            break
+                if not resume:
+                    continue
+                try:
+                    path_value = resume.get('path') if isinstance(resume, dict) else resume.get('path')
+                    if not path_value:
+                        continue
+                    file_path = path_value if path_value.startswith(settings.MEDIA_ROOT) else os.path.join(settings.MEDIA_ROOT, path_value)
+                except Exception:
+                    continue
+                if not os.path.isfile(file_path):
+                    continue
+                _, fname = os.path.split(file_path)
+                arcname = os.path.join('resumes', f"{app.uuid}_{fname}")
+                try:
+                    zf.write(file_path, arcname)
+                    added += 1
+                except OSError:
+                    pass
+        resp = HttpResponse(s.getvalue(), content_type='application/x-zip-compressed')
+        resp['Content-Disposition'] = 'attachment; filename=resumes_%s.zip' % app_type
+        resp['X-Total-Files'] = str(added)
+        return resp

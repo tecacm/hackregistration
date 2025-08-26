@@ -6,7 +6,7 @@ from django.utils.translation import gettext_lazy as _
 
 from app.mixins import BootstrapFormMixin
 from application.models import PermissionSlip
-from application.validators import validate_file_extension
+from application.validators import validate_file_extension, validate_file_size
 
 EXTENSIONS = getattr(settings, 'SUPPORTED_PERMISSION_SLIP_EXTENSIONS', None)
 
@@ -14,9 +14,13 @@ EXTENSIONS = getattr(settings, 'SUPPORTED_PERMISSION_SLIP_EXTENSIONS', None)
 class PermissionSlipForm(forms.ModelForm, BootstrapFormMixin):
     bootstrap_field_info = {'': {'fields': [{'name': 'file', 'space': 12}, {'name': 'terms', 'space': 12}]}}
 
-    file = forms.FileField(validators=[validate_file_extension(EXTENSIONS)], required=True,
-                           label=_('Upload your permission slip'),
-                           help_text=_('Accepted file formats: %s' % (', '.join(EXTENSIONS) if EXTENSIONS else 'Any')))
+    file = forms.FileField(
+        validators=[validate_file_extension(EXTENSIONS), validate_file_size(5)],
+        required=True,
+        label=_('Upload your permission slip'),
+        help_text=_('Accepted format: PDF only. Max size: 5 MB'),
+        widget=forms.ClearableFileInput(attrs={'accept': '.pdf,application/pdf'})
+    )
     terms = forms.BooleanField(label=_('I understand that the permission slip I am providing will be used for '
                                        'ensuring my safety during the event and for addressing any legal aspects '
                                        'related to my participation in the hackathon. I hereby consent to the '

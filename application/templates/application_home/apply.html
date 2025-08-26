@@ -6,6 +6,7 @@
     {% endif %}
     <ul>
         {% for apply_type in apply_types %}
+            {% if not apply_type.hidden %}
             <li>
                 <strong>{{ apply_type.name }}: </strong>{{ apply_type.get_description }}<br>
                 <strong>
@@ -13,10 +14,11 @@
                 </strong>
                 <div class="row justify-content-around mt-3 mb-3">
                     <div class="col-lg-6 col-12 d-grid d-md-block">
-                        <a href="{% url 'apply' %}?type={{ apply_type.name }}&token={{ apply_type.get_token }}" class="btn {% if user_applications %}btn-secondary{% else %}btn-primary{% endif %} col-12">{% trans 'Apply as' %} {{ apply_type.name }}</a>
+                        <a href="{% url 'apply' %}?type={{ apply_type.name }}" class="btn {% if user_applications %}btn-secondary{% else %}btn-primary{% endif %} col-12">{% trans 'Apply as' %} {{ apply_type.name }}</a>
                     </div>
                 </div>
             </li>
+            {% endif %}
         {% endfor %}
     </ul>
 

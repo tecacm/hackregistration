@@ -11,25 +11,34 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 from django.contrib.messages import constants as message_constants
 from django.utils import timezone
 
 from .hackathon_variables import *
 
+FRIENDS_MAX_CAPACITY = 4
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carga las variables del archivo .env
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-*9+h@8wtz_f0i#0i@*8(dt#y1ktpb^1*)ddwr)su8$doq6ny1w')
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'true').lower() != 'false'
+PROD_MODE = os.getenv('PROD_MODE', 'False').lower() == 'true'
+DEBUG = not PROD_MODE
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS_STR = os.getenv('ALLOWED_HOSTS', '').split(',')
+ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_STR if host.strip()]
 HOST = os.environ.get('HOST')
 
 if DEBUG:
@@ -75,6 +84,7 @@ INSTALLED_APPS = [
     'event',
     'event.messages',
     'event.meals',
+    'anymail',
 ]
 
 MIDDLEWARE = [
@@ -146,7 +156,7 @@ if DB_ENGINE == 'sqlite3':
 else:
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.%s' % DB_ENGINE,
+            'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.environ.get('DB_NAME'),
             'USER': os.environ.get('DB_USER'),
             'PASSWORD': os.environ.get('DB_PASSWORD'),
@@ -196,7 +206,9 @@ AUTHENTICATION_BACKENDS = [
 # django-axes configuration
 AXES_USERNAME_FORM_FIELD = 'user.models.User.USERNAME_FIELD'
 AXES_COOLOFF_TIME = timezone.timedelta(minutes=5)
-AXES_FAILURE_LIMIT = os.environ.get('AXES_FAILURE_LIMIT', 3)
+# Allow up to 6 failed login attempts before temporary lockout.
+# Read from env if provided; ensure it is an integer.
+AXES_FAILURE_LIMIT = int(os.environ.get('AXES_FAILURE_LIMIT', '6'))
 AXES_ENABLED = os.environ.get('AXES_ENABLED', not DEBUG)
 AXES_IP_BLACKLIST = os.environ.get('AXES_IP_BLACKLIST', '').split(',')
 SILENCED_SYSTEM_CHECKS = ['axes.W002']
@@ -317,29 +329,18 @@ LOGGING = {
     },
 }
 
-# Sendgrid API key
-SENDGRID_API_KEY = os.environ.get('SENDGRID_KEY', None)
+ANYMAIL = {
+    "MANDRILL_API_KEY": os.environ.get('MANDRILL_API_KEY', None),
+}
 
-# SMTP
-EMAIL_HOST = os.environ.get('EMAIL_HOST', None)
-EMAIL_PORT = os.environ.get('EMAIL_PORT', None)
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', None)
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', None)
-ADMINS_EMAIL = os.environ.get('ADMINS_EMAIL', '').split(',')
-try:
-    ADMINS.extend([(email.split('@')[0].replace('.', ' ').title(), email) for email in ADMINS_EMAIL])
-except:
-    pass
-
-# Load filebased email backend if no Sendgrid credentials and debug mode
-if not SENDGRID_API_KEY and not EMAIL_HOST and DEBUG:
+# Load filebased email backend if no Mandrill credentials and debug mode
+if not ANYMAIL.get("MANDRILL_API_KEY") and DEBUG:
     EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
     EMAIL_FILE_PATH = 'tmp/email-messages/'
 else:
-    if SENDGRID_API_KEY:
-        EMAIL_BACKEND = "sgbackend.SendGridBackend"
-    else:
-        EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_BACKEND = "anymail.backends.mandrill.EmailBackend"
+
+
 
 # Logging system
 if DEBUG:

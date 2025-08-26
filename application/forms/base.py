@@ -11,7 +11,9 @@ from app.utils import is_instance_on_db
 from application.models import Application
 
 
-YEARS = [(year, str(year)) for year in range(timezone.now().year - 1, timezone.now().year + 6)]
+CURRENT_YEAR = timezone.now().year
+# Include previous year so applicants who just graduated can still pick their (past) graduation year
+YEARS = [(year, str(year)) for year in range(CURRENT_YEAR - 1, CURRENT_YEAR + 6)]
 DEFAULT_YEAR = timezone.now().year + 1
 EXTENSIONS = getattr(settings, 'SUPPORTED_RESUME_EXTENSIONS', None)
 
@@ -25,16 +27,21 @@ ENGLISH_LEVELS = [(x, x) for x in ['1', '2', '3', '4', '5']]
 class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
 
     diet_notice = forms.BooleanField(
-        label=_('I authorize %s to use my food allergies and intolerances information to '
-                'manage the catering service only.') % getattr(settings, 'HACKATHON_ORG')
+        label=_('Authorize %s the use of my food allergies and intolerances data for the sole purpose of managing the catering service.') % getattr(settings, 'HACKATHON_ORG')
     )
 
     terms_and_conditions = forms.BooleanField(
-        label=mark_safe(_('I\'ve read, understand and accept <a href="/terms_and_conditions" target="_blank">%s '
-                          'Terms & Conditions</a> and <a href="/privacy_and_cookies" target="_blank">%s '
-                          'Privacy and Cookies Policy</a>.' % (
-                              getattr(settings, 'HACKATHON_NAME', ''), getattr(settings, 'HACKATHON_NAME', '')
-                          )))
+        label=mark_safe(_('I\'ve read, understand and accept the <a href="https://github.com/MLH/mlh-policies/blob/main/code-of-conduct.md" target="_blank">MLH Code of Conduct</a>.'))
+    )
+
+    # MLH required/optional checkboxes (Code of Conduct acceptance kept as terms_and_conditions)
+    mlh_data = forms.BooleanField(
+        label=mark_safe(_('I authorize you to share my application/registration information with Major League Hacking for event administration, ranking, and MLH administration in-line with the <a href="https://github.com/MLH/mlh-policies/blob/main/privacy-policy.md" target="_blank">MLH Privacy Policy</a>. I further agree to the terms of both the <a href="https://github.com/MLH/mlh-policies/blob/main/contest-terms.md" target="_blank">MLH Contest Terms and Conditions</a> and the <a href="https://github.com/MLH/mlh-policies/blob/main/privacy-policy.md" target="_blank">MLH Privacy Policy</a>.')),
+        required=True
+    )
+    mlh_emails = forms.BooleanField(
+        label=_('I authorize MLH to send me occasional emails about relevant events, career opportunities, and community announcements.'),
+        required=False
     )
 
     exclude_save = ['terms_and_conditions', 'diet_notice']
@@ -50,6 +57,12 @@ class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
         instance = super().save(commit)
         if commit:
             self.save_files(instance=instance)
+            # Sync level_of_study (form-only field) into related user profile if provided
+            level = self.cleaned_data.get('level_of_study')
+            if level and hasattr(instance, 'user') and hasattr(instance.user, 'level_of_study'):
+                if instance.user.level_of_study != level:
+                    instance.user.level_of_study = level
+                    instance.user.save(update_fields=['level_of_study'])
         return instance
 
     def save_files(self, instance):
@@ -70,7 +83,11 @@ class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
         return files_fields.keys()
 
     def get_hidden_edit_fields(self):
-        return self.exclude_save.copy()
+        # Fields that should not be required when editing an existing application
+        fields = self.exclude_save.copy()
+        # Do not force MLH data consent again on edit (policy already given on apply)
+        fields.extend(['mlh_data'])
+        return fields
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -87,13 +104,14 @@ class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
         if not is_instance_on_db(instance):  # instance not in DB
             policy_fields = self.get_policy_fields()
             fields.update({
-                _('HackUPC Polices'): {
+                _('HackMTY Policies'): {
                     'fields': policy_fields,
                     'description': '<p style="color: margin-top: 1em;display: block;'
-                                   'margin-bottom: 1em;line-height: 1.25em;">We, %s, '
-                                   'process your information to organize an awesome hackathon. It '
-                                   'will also include images and videos of yourself during the event. '
-                                   'Your data will be used for admissions mainly. '
+                                   'margin-bottom: 1em;line-height: 1.25em;">We, at %s, '
+                                   'process your provided information in order to organize the best possible hackathon. This '
+                                   'may also include images and videos featuring you during the event. '
+                                   'Your data will be preliminarily used for admissions, and any images or videos '
+                                   'may be used for marketing and archiving. '
                                    'For more information on the processing of your '
                                    'personal data and on how to exercise your rights of access, '
                                    'rectification, suppression, limitation, portability and opposition '
@@ -104,7 +122,13 @@ class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
         return fields
 
     def get_policy_fields(self):
-        return [{'name': 'terms_and_conditions', 'space': 12}, {'name': 'diet_notice', 'space': 12}]
+        # Added MLH required checkboxes
+        return [
+            {'name': 'terms_and_conditions', 'space': 12},
+            {'name': 'diet_notice', 'space': 12},
+            {'name': 'mlh_data', 'space': 12},
+            {'name': 'mlh_emails', 'space': 12},
+        ]
 
     def clean_promotional_code(self):
         promotional_code = self.cleaned_data.get('promotional_code', None)
@@ -112,6 +136,15 @@ class ApplicationForm(BootstrapFormMixin, forms.ModelForm):
             if promotional_code.usages != -1 and promotional_code.application_set.count() >= promotional_code.usages:
                 raise ValidationError('This code is out of usages or not for this type')
         return promotional_code
+
+    def clean(self):
+        cleaned = super().clean()
+        # Enforce required MLH data sharing checkbox on initial application only
+        # (on edit, this field is not required and may be hidden)
+        if not is_instance_on_db(getattr(self, 'instance', None)):
+            if 'mlh_data' in self.fields and not cleaned.get('mlh_data'):
+                self.add_error('mlh_data', _('This field is required.'))
+        return cleaned
 
     class Meta:
         model = Application

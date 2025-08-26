@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import auth, messages
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.shortcuts import redirect
-from django.urls import reverse, resolve
+from django.urls import reverse, resolve, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView
@@ -194,13 +194,18 @@ class VerifyEmail(EmailNotVerifiedMixin, View):
         except (TypeError, ValueError, OverflowError, User.DoesNotExist):
             messages.warning(request, _("This user no longer exists. Please sign up again!"))
             return redirect('register')
+
         if AccountActivationTokenGenerator().check_token(user=user, token=kwargs.get('token')):
-            messages.success(request, _("Email verified!"))
+            # Mark verified
             user.email_verified = True
-            user.save()
-            return redirect('home')
-        else:
-            messages.error(request, _("Email verification url has expired. Log in so we can send it again!"))
+            user.save(update_fields=["email_verified", "modified" if hasattr(user, 'modified') else "email_verified"])
+            # Log the user in (ensures session for immediate access to application pages)
+            auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            messages.success(request, _("Email verified!"))
+            # Send directly to application home (role selection)
+            return redirect(reverse_lazy('apply_home'))
+
+        messages.error(request, _("Email verification link is invalid or has expired. Log in to request a new one."))
         return redirect('needs_verification')
 
 

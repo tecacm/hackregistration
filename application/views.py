@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, logout
 from django.contrib.auth.models import Group
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -41,8 +41,13 @@ class ParticipantTabsMixin(TabsViewMixin):
             application = self.request.user.application_set.invited().first()
             tabs.append(("Permission slip", reverse("permission_slip",
                                                     kwargs={'uuid': application.get_uuid}), action))
-        if is_installed("friends") and Application.objects.filter(type__name="Hacker", user=self.request.user,
-                                                                  edition=edition).exists():
+        if (
+            is_installed("friends")
+            and Application.objects.actual()
+                .exclude(status=Application.STATUS_CANCELLED)
+                .filter(type__name="Hacker", user=self.request.user, edition=edition)
+                .exists()
+        ):
             tabs.append(("Friends", reverse("join_friends")))
         return tabs if len(tabs) > 1 else []
 
@@ -51,7 +56,11 @@ class ApplicationHome(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
     template_name = 'application_home.html'
 
     def dispatch(self, request, *args, **kwargs):
-        if request.user.is_authenticated and request.user.is_organizer():
+        # Allow organizer-group users without review permissions to access application home.
+        # Only block users who both are organizers AND have review permissions (to keep reviewer UI clean).
+        if (request.user.is_authenticated and request.user.is_organizer() and
+                (request.user.has_perm('application.can_review_application') or
+                 request.user.has_perm('application.view_application'))):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
@@ -66,8 +75,14 @@ class ApplicationHome(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
 
     def get_application_type_left(self, user_applications):
         user_types = [item.type_id for item in user_applications]
-        return ApplicationTypeConfig.objects.filter(hidden=False).exclude(id__in=user_types) \
+        queryset = (
+            ApplicationTypeConfig.objects
+            .exclude(id__in=user_types)
             .exclude(end_application_date__lt=timezone.now())
+            # Hide if explicitly hidden or if it requires an access_token (private link only)
+            .filter(hidden=False, access_token='')
+        )
+        return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -91,9 +106,18 @@ class ApplicationApply(TemplateView):
         app_type = self.request.GET.get('type', None)
         this_edition = Edition.get_default_edition()
         try:
-            application_type = get_object_or_404(ApplicationTypeConfig,
-                                                 name__iexact=self.request.GET.get('type', 'Hacker').lower(),
-                                                 token=self.request.GET.get('token', None))
+            name_param = self.request.GET.get('type', 'Hacker').lower()
+            token_param = self.request.GET.get('token', None)
+            application_type = get_object_or_404(ApplicationTypeConfig, name__iexact=name_param)
+            # If hidden, require matching access_token query param
+            if application_type.hidden:
+                # If an access_token is set on type, enforce it; else fall back to legacy token field for backwards compatibility
+                required_token = application_type.access_token or str(application_type.token)
+                if token_param != required_token:
+                    raise Http404
+                # Also require user authentication before accessing hidden apply forms (e.g., Sponsor)
+                if not request.user.is_authenticated:
+                    return redirect(reverse('login') + '?' + urlencode({'next': request.get_full_path()}))
         except ValidationError:
             raise Http404
         if request.user.is_authenticated and request.user.email_verified:
@@ -355,6 +379,9 @@ class ApplicationChangeStatus(LoginRequiredMixin, View):
         status_dict = {x: y for (x, y) in application.STATUS}
         if new_status not in status_dict.keys():
             raise Http404()
+        # If the application is already in the requested status, treat as success (idempotent)
+        if new_status == application.status:
+            return redirect(next_page)
         if not request.user.is_organizer() and new_status != application.STATUS_CANCELLED:
             if new_status != application.STATUS_CONFIRMED or application.status not in \
                     [application.STATUS_INVITED, application.STATUS_LAST_REMINDER]:
@@ -373,6 +400,34 @@ class ApplicationChangeStatus(LoginRequiredMixin, View):
                 Application.objects.actual().exclude(uuid=application.get_uuid) \
                     .filter(user=application.user, type__compatible_with_others=False) \
                     .update(status=Application.STATUS_CANCELLED, status_update_date=timezone.now())
+        # If the applicant cancels their own Hacker application, clean up team membership and free email for reuse
+        if (new_status == Application.STATUS_CANCELLED and
+                not request.user.is_organizer() and
+                application.user_id == request.user.id and
+                application.type.name.lower() == 'hacker'):
+            # Remove user from any Friends team to free a slot
+            try:
+                from friends.models import FriendsCode
+                FriendsCode.objects.filter(user=application.user).delete()
+            except Exception:
+                pass
+            # Only release email if there are no other active applications in this edition
+            has_other_active = Application.objects.actual() \
+                .exclude(uuid=application.get_uuid) \
+                .filter(user=application.user) \
+                .exclude(status=Application.STATUS_CANCELLED) \
+                .exists()
+            if has_other_active:
+                return redirect(next_page)
+            # Preserve the application, but anonymize/deactivate the account to free the email
+            user = application.user
+            user.set_unknown()
+            user.save(update_fields=['email', 'is_active'])
+            messages.info(request, _('Your email has been released. You can register again with the same email.'))
+            try:
+                logout(request)
+            except Exception:
+                pass
         return redirect(next_page)
 
 

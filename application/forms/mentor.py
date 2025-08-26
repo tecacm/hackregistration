@@ -1,9 +1,14 @@
 from django import forms
 from django.conf import settings
 from django.templatetags.static import static
+from django.utils.functional import lazy
 from django.utils.translation import gettext_lazy as _
 
+from user.choices import LEVELS_OF_STUDY
+
 from application.forms.base import ApplicationForm
+
+static_lazy = lazy(static, str)
 
 
 class MentorForm(ApplicationForm):
@@ -11,7 +16,9 @@ class MentorForm(ApplicationForm):
         '': {'fields': [
             {'name': 'university', 'space': 6}, {'name': 'degree', 'space': 6},
             {'name': 'country', 'space': 6}, {'name': 'origin', 'space': 6}, {'name': 'study_work', 'space': 6},
-            {'name': 'company', 'space': 6, 'visible': {'study_work': 'Work'}}]},
+            {'name': 'company', 'space': 6, 'visible': {'study_work': 'Work'}},
+            {'name': 'level_of_study', 'space': 12},
+        ]},
         'Hackathons': {
             'fields': [{'name': 'first_timer', 'space': 4},
                        {'name': 'previous_roles', 'space': 4, 'visible': {'first_timer': 'False'}},
@@ -24,6 +31,7 @@ class MentorForm(ApplicationForm):
 
     degree = forms.CharField(max_length=300, label=_('What\'s your major/degree?'),
                              help_text=_('Current or most recent degree you\'ve received'))
+    level_of_study = forms.ChoiceField(choices=LEVELS_OF_STUDY, required=True, label=_('Level of Study'))
 
     origin = forms.CharField(max_length=300, label=_('From which city?'))
 
@@ -31,14 +39,16 @@ class MentorForm(ApplicationForm):
 
     study_work = forms.TypedChoiceField(
         required=True,
-        label='Are you studying or working?',
-        choices=(('Study', _('Study')), ('Work', _('Work'))),
+        label=_('Are you studying or working?'),
+        choices=(('Study', _('Studying')), ('Work', _('Working'))),
         widget=forms.RadioSelect(attrs={'class': 'inline'})
     )
 
-    company = forms.CharField(required=False,
-                              help_text='Current or most recent company you attended',
-                              label='Where are you working at?')
+    company = forms.CharField(
+        required=False,
+        help_text=_('Current or most recent company you worked at.'),
+        label=_('Where are you working?')
+    )
 
     first_timer = forms.TypedChoiceField(
         required=True,
@@ -58,15 +68,16 @@ class MentorForm(ApplicationForm):
 
     more_information = forms.CharField(
         required=False,
-        label=_('There\'s something else we need to know?')
+        label=_('Is there anything else we should know?')
     )
 
     class Meta(ApplicationForm.Meta):
-        description = _('Help and motivate hackers with your knowledge. Either because you are passionate about it'
-                        ', or if you\'ve graduated more than a year ago and can\'t participate as a hacker, '
-                        'apply now as a mentor!')
+        description = _(
+            'Help and motivate hackers with your knowledge. Whether you are passionate about technology '
+            'or graduated over a year ago, applying as a mentor is a great opportunity!'
+        )
         api_fields = {
-            'country': {'url': static('data/countries.json'), 'restrict': True, 'others': True},
-            'university': {'url': static('data/universities.json')},
-            'degree': {'url': static('data/degrees.json')},
+            'country': {'url': static_lazy('data/countries.json'), 'restrict': True, 'others': True},
+            'university': {'url': static_lazy('data/universities.json')},
+            'degree': {'url': static_lazy('data/degrees.json')},
         }

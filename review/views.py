@@ -26,7 +26,7 @@ from app.utils import is_installed
 from application import forms
 from application.mixins import ApplicationPermissionRequiredMixin
 from application.models import Application, FileField, ApplicationLog, ApplicationTypeConfig, PromotionalCode
-from review.emails import get_invitation_or_waitlist_email
+from review.emails import get_invitation_or_waitlist_email, get_rejection_email
 from review.filters import ApplicationTableFilter, ApplicationTableFilterWithPromotion
 from review.forms import CommentForm, DubiousApplicationForm
 from review.models import Vote, FileReview, CommentReaction
@@ -68,9 +68,110 @@ class ApplicationList(IsOrganizerMixin, ReviewApplicationTabsMixin, SingleTableM
     table_pagination = {'per_page': 50}
     filterset_class = ApplicationTableFilter
 
+    def get_table_class(self):
+        """Return the proper table class.
+
+        We only want the invite table (with selection checkboxes) when the user
+        is explicitly on the invite view (separate URL namespace) handled by
+        ApplicationListInvite. For the normal list we always show the full
+        ApplicationTable (with actions/detail column) for organizers.
+        """
+        return ApplicationTable
+
     def get_table(self, **kwargs):
-        permission_slip = self.request.GET.get('user__under_age', '') == 'true'
+        permission_slip = self.request.GET.get('under_age', '') == 'true'
         return super().get_table(promotional_code=PromotionalCode.active(), slip=permission_slip, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        """Support bulk resume download with ?download_resumes=1.
+
+        Applies current filters before zipping. Skips resumes not shared or missing.
+        """
+        if request.GET.get('download_resumes'):
+            app_type = self.get_application_type()
+            base_qs = self.get_queryset().filter(type__name=app_type)
+            filterset_class = self.get_filterset_class()
+            fs = filterset_class(request.GET, queryset=base_qs)
+            qs = fs.qs if hasattr(fs, 'qs') else base_qs
+            debug = request.GET.get('debug')
+            include_unshared = request.GET.get('include_unshared')  # legacy param
+            respect_share = request.GET.get('respect_share') == '1'
+            s = BytesIO()
+            added = 0
+            debug_items = []
+            with ZipFile(s, 'w') as zf:
+                for app in qs:
+                    data = getattr(app, 'form_data', {}) or {}
+                    # Try multiple possible keys for resume
+                    resume = data.get('resume') or data.get('cv') or data.get('curriculum')
+                    if not resume:
+                        # Fallback: first file-type field
+                        for k, v in data.items():
+                            if isinstance(v, dict) and v.get('type') == 'file':
+                                resume = v
+                                break
+                    share = data.get('resume_share', True)
+                    if not resume:
+                        if debug:
+                            debug_items.append({
+                                'app': app.uuid.hex,
+                                'email': app.user.email,
+                                'reason': 'no resume object after scan',
+                                'keys': list(data.keys())
+                            })
+                        continue
+                    # Decide whether to enforce resume_share; default now is include even if share is False
+                    if not share and respect_share and not include_unshared:
+                        if debug:
+                            debug_items.append({
+                                'app': app.uuid.hex,
+                                'email': app.user.email,
+                                'reason': 'excluded due to share flag',
+                                'share': share,
+                                'include_unshared': bool(include_unshared),
+                                'respect_share': respect_share,
+                                'has_resume': bool(resume),
+                                'keys': list(data.keys()),
+                                'sample_resume_value': str(resume)[:120] if resume else None
+                            })
+                        continue
+                    try:
+                        path_value = resume.get('path') if isinstance(resume, dict) else resume.get('path')
+                        if not path_value:
+                            if debug:
+                                debug_items.append({'app': app.uuid.hex, 'email': app.user.email, 'reason': 'no path in resume'})
+                            continue
+                        # Handle already absolute / already rooted paths
+                        if path_value.startswith(settings.MEDIA_ROOT):
+                            file_path = path_value
+                        else:
+                            file_path = os.path.join(settings.MEDIA_ROOT, path_value)
+                    except Exception:  # pragma: no cover - safe fallback
+                        if debug:
+                            debug_items.append({'app': app.uuid.hex, 'email': app.user.email, 'reason': 'exception building path'})
+                        continue
+                    if not os.path.isfile(file_path):
+                        if debug:
+                            debug_items.append({'app': app.uuid.hex, 'email': app.user.email, 'reason': f'file missing: {file_path}'})
+                        continue
+                    _, fname = os.path.split(file_path)
+                    arcname = os.path.join('resumes', f"{app.uuid}_{fname}")
+                    try:
+                        zf.write(file_path, arcname)
+                        added += 1
+                        if debug:
+                            debug_items.append({'app': app.uuid.hex, 'email': app.user.email, 'reason': 'added', 'arcname': arcname, 'share': share})
+                    except OSError:
+                        if debug:
+                            debug_items.append({'app': app.uuid.hex, 'email': app.user.email, 'reason': 'oserror writing file'})
+                        pass
+            if debug:
+                return JsonResponse({'type': app_type, 'total': qs.count(), 'added': added, 'items': debug_items})
+            resp = HttpResponse(s.getvalue(), content_type='application/x-zip-compressed')
+            resp['Content-Disposition'] = 'attachment; filename=resumes_%s.zip' % app_type
+            resp['X-Total-Files'] = str(added)
+            return resp
+        return super().get(request, *args, **kwargs)
 
     def get_filterset_class(self):
         if PromotionalCode.active():
@@ -293,6 +394,9 @@ class ApplicationListInvite(ApplicationPermissionRequiredMixin, ApplicationList)
     table_class = ApplicationInviteTable
     permission_required = 'application.can_invite_application'
 
+    def get_table_class(self):  # explicit for clarity
+        return ApplicationInviteTable
+
     def get_current_tabs(self, **kwargs):
         return []
 
@@ -328,7 +432,10 @@ class ApplicationListInvite(ApplicationPermissionRequiredMixin, ApplicationList)
                 try:
                     application.save()
                     log.save()
-                    emails.add(get_invitation_or_waitlist_email(request, application))
+                    if new_status == Application.STATUS_DECLINED:
+                        emails.add(get_rejection_email(request, application))
+                    else:
+                        emails.add(get_invitation_or_waitlist_email(request, application))
                 except Error:
                     error += 1
         emails = emails.send_all()

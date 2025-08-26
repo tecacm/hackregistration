@@ -26,7 +26,11 @@
     {% if edit or application_type.active %}
         {% if not edit %}
             <div class="alert alert-info alert-dismissible fade show" role="alert">
-                {{ application_type.name }} {% translate 'applications are open. Hurry, they will close in' %} {{ application_type.time_left }}.
+                {% if application_type.days_until_close > 15 %}
+                    {{ application_type.name }} {% translate 'applications are open.' %}
+                {% else %}
+                    {{ application_type.name }} {% translate 'applications are open. They will close in' %} {{ application_type.time_left }}, {% translate 'so hurry!' %}
+                {% endif %}
             </div>
             {% if request.user.is_authenticated %}
                 <script>
@@ -95,8 +99,9 @@
 
             <div class="row justify-content-around">
                 {% if edit and not request.user.is_organizer %}
+                    {% translate "Did you change your mind? Are you sure you want to cancel this application?" as cancel_confirm %}
                     <div class="col-12 col-lg-6 d-grid d-md-block">
-                        <a href="{% url 'change_status_application' application_form.instance.get_uuid application_form.instance.STATUS_CANCELLED %}" onclick="return confirm('{% trans "Did you changed your mind? Are you sure you want to cancel this application?" %}')" class="btn btn-danger col-12">{% trans 'Cancel my application' %}</a>
+                        <a href="{% url 'change_status_application' application_form.instance.get_uuid application_form.instance.STATUS_CANCELLED %}" onclick="return confirm('{{ cancel_confirm|escapejs }}')" class="btn btn-danger col-12">{% trans 'Cancel my application' %}</a>
                     </div>
                 {% endif %}
                 {% if not application_form.is_read_only %}
@@ -111,10 +116,11 @@
                 {% endif %}
             </div>
             {% if request.user.is_organizer %}
+                {% translate 'Add a comment on the reason of your change (optional)' as change_comment %}
                 <input style="display: none" id="comment_applicationlog_input" name="comment_applicationlog" value="">
                 <script nonce="{{ request.csp_nonce }}">
                     function confirm_edit() {
-                        let comment = prompt('{% translate 'Add a comment on the reason of your change (optional)' %}')
+                        let comment = prompt("{{ change_comment|escapejs }}")
                         if (comment === null) return false
                         $('#comment_applicationlog_input').val(comment)
                         return true
@@ -122,6 +128,21 @@
                 </script>
             {% endif %}
         </form>
+        <script nonce="{{ request.csp_nonce }}">
+            (function(){
+                const fiveMB = 5 * 1024 * 1024;
+                const input = document.querySelector('input[type="file"][name="resume"]');
+                if (input) {
+                    input.addEventListener('change', function(){
+                        const f = this.files && this.files[0];
+                        if (f && f.size > fiveMB) {
+                            alert("This file is larger than 5 MB. Please upload a smaller PDF.");
+                            this.value = '';
+                        }
+                    });
+                }
+            })();
+        </script>
 
     {% else %}
 

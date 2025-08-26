@@ -9,7 +9,7 @@
 {% block content %}
     <div>
         <h1 style="text-align: center">{% translate 'Home' %}</h1>
-        <p>{% blocktrans %}This is the main application of {{ app_hack }}. From here you can apply as all the possible roles and participate to {{ app_hack }}.{% endblocktrans %}</p>
+        <p>{% blocktrans %}This is the main application for {{ app_hack }}. From here you can apply as all the possible roles that take part in {{ app_hack }}.{% endblocktrans %}</p>
         {% if user_applications %}
             {% include 'application_home/user_applications.html' %}
         {% endif %}

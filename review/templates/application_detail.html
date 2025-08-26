@@ -51,6 +51,10 @@
                     <div class="col-lg-3 fw-bold pb-3 text-lg-end text-break">{% translate 'Full name' %}</div>
                     <div class="col-lg-9 pb-3 text-break">{{ application.user.get_full_name }}</div>
                 </div>
+                <div class="row">
+                    <div class="col-lg-3 fw-bold pb-3 text-lg-end text-break">{% translate 'Age' %}</div>
+                    <div class="col-lg-9 pb-3 text-break">{{ application.user.age }}</div>
+                </div>
                 {% if not vote %}
                     <div class="row">
                         <div class="col-lg-3 fw-bold pb-3 text-lg-end text-break">{% translate 'Email' %}</div>

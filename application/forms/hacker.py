@@ -1,20 +1,30 @@
 from django import forms
 from django.conf import settings
 from django.core.validators import RegexValidator
+from django.urls import reverse_lazy
 from django.templatetags.static import static
+from django.utils.functional import lazy
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
+from user.choices import LEVELS_OF_STUDY
+
 from application.forms.base import ApplicationForm, DEFAULT_YEAR, YEARS, EXTENSIONS
-from application.validators import validate_file_extension
+from application.validators import validate_file_extension, validate_file_size
+
+static_lazy = lazy(static, str)
 
 
 # This class is linked to the instance of ApplicationTypeConfig where name = 'Hacker'
 class HackerForm(ApplicationForm):
     bootstrap_field_info = {
         '': {
-            'fields': [{'name': 'university', 'space': 4}, {'name': 'degree', 'space': 4},
-                       {'name': 'lennyface', 'space': 4}, {'name': 'graduation_year', 'space': 8}]},
+            'fields': [
+                {'name': 'university', 'space': 4}, {'name': 'degree', 'space': 4},
+                {'name': 'lennyface', 'space': 4}, {'name': 'graduation_year', 'space': 8},
+                # Full-width row for Level of Study
+                {'name': 'level_of_study', 'space': 12},
+            ]},
         _('Hackathons'): {
             'fields': [{'name': 'description', 'space': 6}, {'name': 'projects', 'space': 6},
                        {'name': 'first_timer', 'space': 12}, ]},
@@ -28,7 +38,7 @@ class HackerForm(ApplicationForm):
             'fields': [{'name': 'country', 'space': 6}, {'name': 'origin', 'space': 6}], }
     }
 
-    phone_number = forms.CharField(validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$')], required=False,
+    phone_number = forms.CharField(validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$')], required=True,
                                    help_text=_("Phone number must be entered in the format: +#########'. "
                                                "Up to 15 digits allowed."),
                                    widget=forms.TextInput(attrs={'placeholder': '+#########'}))
@@ -48,10 +58,9 @@ class HackerForm(ApplicationForm):
     )
 
     # Random lenny face
-    lennyface = forms.CharField(max_length=300, initial='-.-', label=_('Describe yourself in one "lenny face"?'),
+    lennyface = forms.CharField(max_length=300, initial='-.-', label=_('Describe yourself with one "lenny face"?'),
                                 help_text=mark_safe(
-                                    _('tip: you can chose from here <a href="https://textsmili.es/" target="_blank"> '
-                                      'https://textsmili.es/</a>')))
+                                    _('Tip: you can choose one from <a href="https://textsmili.es/" target="_blank">textsmili.es</a>.')))
 
     # University
     graduation_year = forms.IntegerField(initial=DEFAULT_YEAR,
@@ -61,6 +70,7 @@ class HackerForm(ApplicationForm):
                                  help_text=_('Current or most recent school you attended.'))
     degree = forms.CharField(max_length=300, label=_('What\'s your major/degree?'),
                              help_text=_('Current or most recent degree you\'ve received'))
+    level_of_study = forms.ChoiceField(choices=LEVELS_OF_STUDY, required=True, label=_('Level of Study'))
 
     # URLs
     github = forms.URLField(required=False,
@@ -73,7 +83,7 @@ class HackerForm(ApplicationForm):
 
     # Explain a little bit what projects have you done lately
     projects = forms.CharField(required=False, max_length=500, widget=forms.Textarea(attrs={'rows': 3}), help_text=_(
-        'You can talk about about past hackathons, personal projects, awards etc. (we love links) '
+        'You can talk about past hackathons, personal projects, awards, etc. (we love links). '
         'Show us your passion! :D'), label=_('What projects have you worked on?'))
 
     # Why do you want to come to X?
@@ -81,30 +91,50 @@ class HackerForm(ApplicationForm):
                                   label=_('Why are you excited about %s?' % getattr(settings, 'HACKATHON_NAME')))
 
     # CV info
-    resume_share = forms.BooleanField(required=False, initial=False, label=_(
-        'I authorize %s to share my CV with %s Sponsors.' % (getattr(settings, 'HACKATHON_ORG'),
-                                                             getattr(settings, 'HACKATHON_NAME'))))
-    resume = forms.FileField(validators=[validate_file_extension(EXTENSIONS)],
-                             label=_('Upload your resume'), help_text=_(
-        'Accepted file formats: %s' % (', '.join(EXTENSIONS) if EXTENSIONS else 'Any')))
+    resume_share = forms.BooleanField(required=True, label=_(
+        'I authorize %s to share my CV with this event\'s sponsors.' % (getattr(settings, 'HACKATHON_ORG'))))
+    resume = forms.FileField(
+        validators=[validate_file_extension(EXTENSIONS), validate_file_size(5)],
+        label=_('Upload your resume'),
+        help_text=_('Accepted format: PDF only. Max size: 5 MB'),
+        widget=forms.ClearableFileInput(attrs={'accept': '.pdf,application/pdf'})
+    )
 
     def get_policy_fields(self):
-        policy_fields = super().get_policy_fields()
-        policy_fields.extend([{'name': 'resume_share', 'space': 12}])
-        return policy_fields
+        # Reorder to show HackMTY-specific consents first (diet / resume share), then MLH consents
+        base_fields = super().get_policy_fields()
+        # base_fields currently: terms_and_conditions, diet_notice, mlh_data, mlh_emails
+        by_name = {f['name']: f for f in base_fields}
+        ordered_names = [
+            'diet_notice',      # HackMTY catering data
+            'resume_share',     # HackMTY resume sharing
+            'terms_and_conditions',  # MLH Code of Conduct
+            'mlh_data',         # MLH data sharing
+            'mlh_emails',       # MLH optional emails
+        ]
+        # Ensure resume_share definition exists
+        resume_share_field = {'name': 'resume_share', 'space': 12}
+        result = []
+        for name in ordered_names:
+            if name == 'resume_share':
+                result.append(resume_share_field)
+            elif name in by_name:
+                result.append(by_name[name])
+        return result
 
     def get_hidden_edit_fields(self):
         hidden_fields = super().get_hidden_edit_fields()
-        hidden_fields.extend(['resume_share'])
+        # On edit, do not require re-consent for resume sharing or re-uploading the resume.
+        hidden_fields.extend(['resume_share', 'resume'])
         return hidden_fields
 
     class Meta(ApplicationForm.Meta):
-        description = _('You will join a team with which you will do a project in a weekend. '
-                        'You will meet new people and learn a lot, don\'t think about it and apply!')
+        description = _('You will join a team and create a project during the event. '
+                        'You can meet lots of new people and learn a lot, don\'t hesitate to apply!')
         api_fields = {
-            'country': {'url': static('data/countries.json'), 'restrict': True, 'others': True},
-            'university': {'url': static('data/universities.json')},
-            'degree': {'url': static('data/degrees.json')},
+            'country': {'url': static_lazy('data/countries.json'), 'restrict': True, 'others': True},
+            'university': {'url': static_lazy('data/universities.json')},
+            'degree': {'url': static_lazy('data/degrees.json')},
         }
         icon_link = {
             'resume': 'bi bi-file-pdf-fill',

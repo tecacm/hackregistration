@@ -13,7 +13,7 @@ from application.mixins import ApplicationPermissionRequiredMixin
 from application.models import Application, Edition, ApplicationTypeConfig, ApplicationLog
 from application.views import ParticipantTabsMixin
 from friends.filters import FriendsInviteTableFilter
-from friends.forms import FriendsForm
+from friends.forms import FriendsForm, DevpostForm
 from friends.models import FriendsCode
 from friends.tables import FriendInviteTable
 from review.emails import get_invitation_or_waitlist_email
@@ -28,8 +28,13 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
     def handle_permissions(self, request):
         permission = super().handle_permissions(request)
         edition = Edition.get_default_edition()
-        if permission is None and not \
-                Application.objects.filter(type__name="Hacker", user=request.user, edition=edition).exists():
+        if (
+            permission is None
+            and not Application.objects.actual()
+                .exclude(status=Application.STATUS_CANCELLED)
+                .filter(type__name="Hacker", user=request.user, edition=edition)
+                .exists()
+        ):
             return self.handle_no_permission()
         return permission
 
@@ -38,17 +43,23 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        try:
-            friends_code = FriendsCode.objects.get(user=self.request.user)
+        friends_code = FriendsCode.objects.filter(user=self.request.user).order_by('-id').first()
+        if friends_code:
             context.update({"friends_code": friends_code})
-        except FriendsCode.DoesNotExist:
+            members_count = friends_code.get_members().count()
+            context.update({"members_count": members_count})
+            # If team is full, show Devpost URL entry
+            friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
+            if friends_max_capacity and members_count >= friends_max_capacity:
+                context.update({"devpost_form": DevpostForm(initial={'devpost_url': friends_code.devpost_url})})
+        else:
             context.update({"friends_form": FriendsForm()})
         context.update({'friends_max_capacity': getattr(settings, 'FRIENDS_MAX_CAPACITY', None)})
         return context
 
     def post(self, request, **kwargs):
         action = request.POST.get("action")
-        if action not in ["create", "join", "leave"]:
+        if action not in ["create", "join", "leave", "set_devpost"]:
             return HttpResponseBadRequest()
         method = getattr(self, action)
         return method()
@@ -58,6 +69,8 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
         code = kwargs.get("code", None)
         if code is not None:
             default["code"] = code
+        # Ensure the user holds only one FriendsCode record
+        FriendsCode.objects.filter(user=self.request.user).delete()
         FriendsCode(**default).save()
         return redirect(reverse("join_friends"))
 
@@ -70,8 +83,15 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
                 form.add_error("friends_code", "Invalid code!")
             elif friend_code.reached_max_capacity():
                 form.add_error("friends_code", "This team is already full")
-            elif friend_code.is_closed():
-                form.add_error("friends_code", "This team has one application invited and cannot be joined")
+            elif friend_code.is_closed_for_user(self.request.user):
+                # Allow switching teams even if the target team is closed,
+                # as long as the joining user is already invited/confirmed/attended in this edition
+                edition_pk = Edition.get_default_edition()
+                user_app = Application.objects.filter(user=self.request.user, edition_id=edition_pk).first()
+                if not user_app or user_app.status not in FriendsCode.STATUS_NOT_ALLOWED_TO_JOIN_TEAM:
+                    form.add_error("friends_code", "This team has one application invited and cannot be joined")
+                else:
+                    return self.create(code=code)
             else:
                 return self.create(code=code)
         context = self.get_context_data()
@@ -79,11 +99,28 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
         return self.render_to_response(context)
 
     def leave(self, **kwargs):
-        try:
-            friends_code = FriendsCode.objects.get(user=self.request.user)
-            friends_code.delete()
-        except FriendsCode.DoesNotExist:
-            pass
+        FriendsCode.objects.filter(user=self.request.user).delete()
+        return redirect(reverse("join_friends"))
+
+    def set_devpost(self, **kwargs):
+        friends_code = FriendsCode.objects.filter(user=self.request.user).order_by('-id').first()
+        if not friends_code:
+            return redirect(reverse("join_friends"))
+        members_count = friends_code.get_members().count()
+        friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
+        if not (friends_max_capacity and members_count >= friends_max_capacity):
+            messages.error(self.request, _('Your team must be full to set the Devpost URL.'))
+            return redirect(reverse("join_friends"))
+        form = DevpostForm(self.request.POST)
+        if form.is_valid():
+            url = form.cleaned_data['devpost_url']
+            # Propagate to all records of the same group code
+            FriendsCode.objects.filter(code=friends_code.code).update(devpost_url=url)
+            messages.success(self.request, _('Devpost URL saved.'))
+        else:
+            context = self.get_context_data()
+            context.update({"devpost_form": form})
+            return self.render_to_response(context)
         return redirect(reverse("join_friends"))
 
 
@@ -108,8 +145,11 @@ class FriendsListInvite(ApplicationPermissionRequiredMixin, IsOrganizerMixin, Re
     def get_queryset(self):
         edition = Edition.get_default_edition()
         application_type = get_object_or_404(ApplicationTypeConfig, name__iexact=self.get_application_type())
-        return self.table_class.get_queryset(application_type.application_set.filter(edition_id=edition,
-                                                                                     user__friendscode__isnull=False))
+        qs = application_type.application_set.filter(edition_id=edition, user__friendscode__isnull=False)
+        code = self.request.GET.get('code')
+        if code:
+            qs = qs.filter(user__friendscode__code=code)
+        return self.table_class.get_queryset(qs)
 
     def post(self, request, *args, **kwargs):
         selection = request.POST.getlist('select')

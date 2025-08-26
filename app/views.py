@@ -8,7 +8,9 @@ from user.mixins import LoginRequiredMixin
 
 class BaseView(LoginRequiredMixin, View):
     def get(self, request, *args, **kwargs):
-        if request.user.is_organizer():
+        if (request.user.is_organizer() and
+            (request.user.has_perm('application.can_review_application') or
+            request.user.has_perm('application.view_application'))):
             return redirect('application_review')
         return redirect('apply_home')
 
@@ -54,3 +56,11 @@ class LatexTemplateView(View):
     def get(self, request, *args, **kwargs):
         context = self.get_context_data(**kwargs)
         return render_to_pdf(request, self.template_name, context, filename=self.file_name)
+
+
+class UploadTooLarge(View):
+    """Render a friendly page when the reverse proxy returns a 413.
+    Use Nginx error_page to 302 redirect to this route.
+    """
+    def get(self, request, *args, **kwargs):
+        return render(request=request, template_name='errors/413.html', status=413)

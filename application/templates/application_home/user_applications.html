@@ -8,6 +8,11 @@
                     <h2>Welcome to {{ app_hack }}</h2>
                     <p>{{ applications_attended.0.get_public_status_description }}</p>
                     <p>{% translate 'Checked in as' %} {{ applications_attended|get_type_list|join:', ' }}. {% translate 'You have your QR with you, but if you lose it, you can use this one as well' %}</p>
+                    {% if show_reentry_disclaimer %}
+                        <div class="alert alert-warning mt-3" role="alert">
+                            {% translate "If you are on campus and leave after 11:00 pm, you will not be able to re-enter until 6:00 am." %}
+                        </div>
+                    {% endif %}
                 </div>
                 <div class="col-12 col-lg-4">
                     <div class="d-flex justify-content-center justify-content-lg-end">
@@ -79,6 +84,11 @@
                     <h2>{% translate 'Confirmed applications:' %} {{ applications_confirmed|get_type_list|join:', ' }}</h2>
                     <p>{{ applications_confirmed.0.get_public_status_description }}</p>
                     <p>{% translate 'Show this QR to the event to speedup the check-in process' %}</p>
+                    {% if show_reentry_disclaimer %}
+                        <div class="alert alert-warning mt-3" role="alert">
+                            {% translate "If you are on campus and leave after 11:00 pm, you will not be able to re-enter until 6:00 am." %}
+                        </div>
+                    {% endif %}
                 </div>
                 <div class="col-12 col-lg-4">
                     <div class="d-flex justify-content-center justify-content-lg-end">
@@ -125,13 +135,15 @@
                     <a href="{% url 'edit_application' app.get_uuid %}" class="btn btn-primary col-12">{% if app.can_edit %}{% translate 'Edit application' %}{% else %}{% translate 'View application' %}{% endif %}</a>
                 </div>
             </div>
-        {% elif app.get_public_status == app.STATUS_INVITED or app.get_public_status == app.STATUS_LAST_REMINDER %}
+    {% elif app.get_public_status == app.STATUS_INVITED or app.get_public_status == app.STATUS_LAST_REMINDER %}
+    {% translate "Did you change your mind? Are you sure you want to cancel this application?" as cancel_confirm %}
+    {% blocktrans with type_name=app.type.name asvar invitation_confirm %}Your {{ type_name }} invitation will be confirmed. This means that all your other applications will be cancelled. Are you sure you want to confirm this one?{% endblocktrans %}
             <div class="row justify-content-around mt-3 mb-3">
                 <div class="col-12 col-lg-6 d-grid d-md-block">
-                    <a href="{% url 'change_status_application' app.get_uuid app.STATUS_CANCELLED %}" onclick="return confirm('{% trans "Did you changed your mind? Are you sure you want to cancel this application?" %}')" class="btn btn-danger col-12">{% trans 'Cancel my application' %}</a>
+            <a href="{% url 'change_status_application' app.get_uuid app.STATUS_CANCELLED %}" onclick="return confirm('{{ cancel_confirm|escapejs }}')" class="btn btn-danger col-12">{% trans 'Cancel my application' %}</a>
                 </div>
                 <div class="col-12 col-lg-6 d-grid d-md-block mt-2 mt-lg-0">
-                    <a href="{% url 'change_status_application' app.get_uuid app.STATUS_CONFIRMED %}" onclick="return confirm('{% blocktrans %}Your {{ app.type.name }} invitation will be confirmed. This means that all your other applications will be cancelled. Are you sure you want to confirm this one?{% endblocktrans %}')" class="btn btn-success col-12">{% trans 'Confirm invitation' %}</a>
+            <a href="{% url 'change_status_application' app.get_uuid app.STATUS_CONFIRMED %}" onclick="return confirm('{{ invitation_confirm|escapejs }}')" class="btn btn-success col-12">{% trans 'Confirm invitation' %}</a>
                 </div>
             </div>
         {% endif %}

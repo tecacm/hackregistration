@@ -27,3 +27,11 @@ def get_invitation_or_waitlist_email(request, application):
         'url': request.build_absolute_uri(reverse('home')),
     }
     return Email(name='application_invite_or_waitlist', context=context, to=application.user.email, request=request)
+
+
+def get_rejection_email(request, application):
+    context = {
+        'application': application,
+        'url': request.build_absolute_uri(reverse('home')),
+    }
+    return Email(name='application_rejected', context=context, to=application.user.email, request=request)

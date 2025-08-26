@@ -17,6 +17,7 @@ def get_random_string():
 class FriendsCode(models.Model):
     code = models.CharField(default=get_random_string, max_length=getattr(settings, "FRIEND_CODE_LENGTH", 13))
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    devpost_url = models.URLField(blank=True, null=True)
 
     STATUS_NOT_ALLOWED_TO_JOIN_TEAM = [Application.STATUS_CONFIRMED,
                                        Application.STATUS_INVITED,
@@ -29,9 +30,19 @@ class FriendsCode(models.Model):
         edition_pk = Edition.get_default_edition()
         return FriendsCode.objects.filter(
             code=self.code,
-            user__application_set__edition_id=edition_pk,
-            user__application_set__status__in=self.STATUS_NOT_ALLOWED_TO_JOIN_TEAM
+            user__application__edition_id=edition_pk,
+            user__application__status__in=self.STATUS_NOT_ALLOWED_TO_JOIN_TEAM
         ).exists()
+
+    def is_closed_for_user(self, user):
+        """A team is considered closed if there's a member with restricted status
+        other than the requesting user. This enables switching teams for already accepted users."""
+        edition_pk = Edition.get_default_edition()
+        return FriendsCode.objects.filter(
+            code=self.code,
+            user__application__edition_id=edition_pk,
+            user__application__status__in=self.STATUS_NOT_ALLOWED_TO_JOIN_TEAM
+        ).exclude(user=user).exists()
 
     def reached_max_capacity(self):
         friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)

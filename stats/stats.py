@@ -26,3 +26,29 @@ class ApplicationStats(base.BaseStats):
     attendance = base.ApplicationFormChart(base.Chart.BAR, order=14)
     previous_roles = base.ApplicationFormChart(base.Chart.DONUT, order=15)
     company = base.ApplicationFormChart(base.Chart.BAR, order=16)
+    age = base.Chart(base.Chart.BAR, order=17)
+
+    def update_age(self, value, instance):
+        if value is None:
+            value = {'<18': 0, '18-20': 0, '21-24': 0, '25-29': 0, '30-34': 0, '35-39': 0, '40+': 0, 'N/A': 0}
+        
+        age = instance.user.age
+        if age is None:
+            value['N/A'] += 1
+            return value
+
+        if age < 18:
+            value['<18'] += 1
+        elif 18 <= age <= 20:
+            value['18-20'] += 1
+        elif 21 <= age <= 24:
+            value['21-24'] += 1
+        elif 25 <= age <= 29:
+            value['25-29'] += 1
+        elif 30 <= age <= 34:
+            value['30-34'] += 1
+        elif 35 <= age <= 39:
+            value['35-39'] += 1
+        else:
+            value['40+'] += 1
+        return value

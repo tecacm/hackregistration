@@ -73,12 +73,16 @@ class ApplicationTypeConfig(models.Model):
                                                                         'authenticated tp apply'))
     hidden = models.BooleanField(default=False, help_text=_('Setting this to True doesn\'t show the application '
                                                             'to registered users'))
+    access_token = models.CharField(max_length=64, blank=True, help_text=_('Optional secret token required to access apply form when hidden (share the link ?type=Type&token=ACCESS_TOKEN)'))
     token = models.UUIDField(default=uuid.uuid4)
     spots = models.PositiveIntegerField(default=100, help_text=_('Number of total spots for this type of participants. '
                                                                  'Attrition rate will be added automatically.'))
 
     @property
     def get_token(self):
+        # Only expose legacy token when type is not hidden; hidden types must use access_token manually via distributed link
+        if self.hidden:
+            return ''
         return str(self.token)
 
     def get_spots_with_attrition(self):
@@ -116,6 +120,17 @@ class ApplicationTypeConfig(models.Model):
     def closed(self):
         now = timezone.now()
         return self.end_application_date < now
+
+    def days_until_close(self):
+        """Return integer number of whole days until applications close (0 if inactive or already closed).
+
+        Used in templates to decide whether to display the detailed countdown. We only
+        show the countdown urgency message when there are 14 days or fewer left.
+        """
+        if not self.active() or self.closed():
+            return 0
+        delta = self.end_application_date - timezone.now()
+        return delta.days
 
     def time_left(self):
         now = timezone.now()
@@ -205,9 +220,11 @@ class Application(models.Model):
     STATUS_NEEDS_CHANGE = 'NC'
     STATUS_INVALID = 'IV'
     STATUS_BLOCKED = 'BL'
+    STATUS_DECLINED = 'RJ'
     STATUS = [
-        (STATUS_PENDING, _('Under review')),
-        (STATUS_REJECTED, _('Wait listed')),
+    (STATUS_PENDING, _('Under review')),
+    (STATUS_REJECTED, _('Wait listed')),
+    (STATUS_DECLINED, _('Rejected')),
         (STATUS_INVITED, _('Invited')),
         (STATUS_LAST_REMINDER, _('Last reminder')),
         (STATUS_CONFIRMED, _('Confirmed')),
@@ -229,7 +246,8 @@ class Application(models.Model):
         STATUS_INVITED: 'primary',
         STATUS_CANCELLED: 'danger',
         STATUS_EXPIRED: 'danger',
-        STATUS_INVALID: 'danger',
+    STATUS_INVALID: 'danger',
+    STATUS_DECLINED: 'danger',
         STATUS_REJECTED: 'danger',
         STATUS_BLOCKED: 'danger',
     }
@@ -244,8 +262,9 @@ class Application(models.Model):
         STATUS_CANCELLED: _('You have cancelled your application, we hope to see you next year.'),
         STATUS_EXPIRED: _('Your application invitation have been expired. '
                           'Please contact us quick if you want to come.'),
-        STATUS_INVALID: _('Your application have been invalidated. It seems you cannot join us with this role.'),
-        STATUS_REJECTED: _('We are so sorry, but our hack is full...'),
+    STATUS_INVALID: _('Your application have been invalidated. It seems you cannot join us with this role.'),
+    STATUS_REJECTED: _('We are so sorry, our hack is full. You are on the waitlist.'),
+    STATUS_DECLINED: _('We are so sorry, but you were not selected this year.'),
         STATUS_BLOCKED: _('User was blocked by your organization.'),
         STATUS_DUBIOUS: _('This application has something suspicious'),
         STATUS_ATTENDED: _('You have arrived at the event. Have fun!'),

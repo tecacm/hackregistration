@@ -8,10 +8,13 @@ from django.contrib.auth import password_validation
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
 from django.core.exceptions import ValidationError
 from django.utils.safestring import mark_safe
+from django.utils import timezone
+from django.core.validators import RegexValidator
 
 from app.mixins import BootstrapFormMixin
 from app.utils import get_theme, is_instance_on_db
 from user.models import User
+from user.choices import LEVELS_OF_STUDY
 from django.utils.translation import gettext_lazy as _
 
 
@@ -62,7 +65,7 @@ class UserCreationForm(BootstrapFormMixin, forms.ModelForm):
                                             {'name': 'password2', 'space': 12}]}}
 
     password1 = forms.CharField(label=_('Password'), widget=forms.PasswordInput, max_length=128)
-    password2 = forms.CharField(label=_('Password confirmation'), widget=forms.PasswordInput, max_length=128,
+    password2 = forms.CharField(label=_('Confirm your password'), widget=forms.PasswordInput, max_length=128,
                                 help_text=password_validation.password_validators_help_text_html())
 
     class Meta:
@@ -98,8 +101,7 @@ class RegistrationForm(UserCreationForm):
                                             {'name': 'email_subscribe', 'space': 12}]}}
 
     terms_and_conditions = forms.BooleanField(
-        label=mark_safe(_('I\'ve read, understand and accept <a href="/privacy_and_cookies" target="_blank">HackUPC '
-                          'Privacy and Cookies Policy</a>.')))
+        label=mark_safe(_('I\'ve read, understand and accept the <a href="https://github.com/MLH/mlh-policies/blob/main/code-of-conduct.md" target="_blank">MLH Code of Conduct</a>.')))
 
     def clean_password2(self):
         password2 = super().clean_password2()
@@ -113,15 +115,14 @@ class RegistrationForm(UserCreationForm):
         # https://stackoverflow.com/questions/9704067/test-if-django-modelform-has-instance
         if not cc and not self.instance.pk:
             raise forms.ValidationError(_(
-                "In order to apply and attend you have to accept our Terms & Conditions and"
-                " our Privacy and Cookies Policy."
+                "In order to apply and attend you have to accept the MLH Code of Conduct."
             ))
         return cc
 
     class Meta(UserCreationForm.Meta):
         fields = ('first_name', 'last_name', 'email', 'password1', 'password2', 'email_subscribe')
         labels = {
-            'email_subscribe': _('Subscribe to our Marketing list in order to inform you about our next events.')
+            'email_subscribe': _('Subscribe to our mailing list to receive information about our next events.')
         }
 
 
@@ -143,19 +144,33 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
     bootstrap_field_info = {_('Personal Info'): {'fields': [
         {'name': 'first_name', 'space': 6}, {'name': 'last_name', 'space': 6}, {'name': 'email', 'space': 6},
         {'name': 'phone_number', 'space': 6}, {'name': 'tshirt_size', 'space': 4}, {'name': 'diet', 'space': 4},
-        {'name': 'other_diet', 'space': 4, 'visible': {'diet': User.DIET_OTHER}}, {'name': 'under_age', 'space': 4},
+        {'name': 'other_diet', 'space': 4, 'visible': {'diet': User.DIET_OTHER}}, {'name': 'birth_date', 'space': 4},
         {'name': 'gender', 'space': 4}, {'name': 'other_gender', 'space': 4, 'visible': {'gender': User.GENDER_OTHER}},
     ],
-        'description': _('Hey there, before we begin we would like to know a little more about you.')}, }
+        'description': _('Hey there, before we begin, we would like to know a little more about you.')}, }
 
-    under_age = forms.TypedChoiceField(
-        required=True,
-        label=_('How old are you?'),
-        initial=False,
-        coerce=lambda x: x == 'True',
-        choices=((False, _('18 or over')), (True, _('Between 14 (included) and 18'))),
-        widget=forms.RadioSelect
+    # Capture age as an integer but map it internally to a synthetic birth_date so existing
+    # age calculations & statistics (which rely on birth_date) still work.
+    # We generate a birth_date with today's month/day minus the provided years so age property matches input.
+    birth_date = forms.IntegerField(
+        label=_('Age (as of dates of %(hackathon)s)') % {'hackathon': getattr(settings, 'HACKATHON_NAME', '')},
+        required=False,
+        min_value=10,
+        max_value=100,
+        help_text=_('Enter your age in years. We will not store your exact birth date, only an inferred year.')
     )
+
+    # Override model field to enforce required at form level
+    phone_number = forms.CharField(
+        validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$')],
+        required=True,
+        max_length=20,
+        label=_('Phone number'),
+        help_text=_('Phone number must be entered in the format: +#########. Up to 15 digits allowed.'),
+        widget=forms.TextInput(attrs={'placeholder': '+#########'})
+    )
+
+    level_of_study = forms.ChoiceField(choices=LEVELS_OF_STUDY, required=True, label=_('Level of Study'))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -164,6 +179,9 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
             email_field = self.fields.get('email')
             email_field.widget.attrs['readonly'] = True
             email_field.help_text = _('This field cannot be modified')
+            # Populate age integer from stored synthetic birth_date
+            if instance and instance.birth_date:
+                self.initial['birth_date'] = instance.age
 
     def get_bootstrap_field_info(self):
         info = super().get_bootstrap_field_info()
@@ -187,11 +205,26 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
             return self.instance.email
         return self.cleaned_data.get('email')
 
+    def clean_birth_date(self):
+        age = self.cleaned_data.get('birth_date')
+        if age in (None, ''):
+            return None
+        # Convert supplied age to a deterministic birth_date so age calculations remain stable.
+        today = timezone.now().date()
+        try:
+            age_int = int(age)
+        except (TypeError, ValueError):
+            raise forms.ValidationError(_('Please enter a valid age.'))
+        if age_int < 10 or age_int > 100:
+            raise forms.ValidationError(_('Age must be between 10 and 100.'))
+        synthetic = today.replace(year=today.year - age_int)
+        return synthetic
+
     class Meta:
         model = User
         fields = ['first_name', 'email', 'last_name', 'phone_number', 'diet', 'other_diet', 'gender',
-                  'other_gender', 'under_age', 'tshirt_size']
-        fields_only_public = ['under_age', 'tshirt_size']
+                  'other_gender', 'birth_date', 'level_of_study', 'tshirt_size']
+        fields_only_public = ['birth_date', 'tshirt_size']
         help_texts = {
             'gender': _('This is for demographic purposes. You can skip this question if you want.'),
             'other_diet': _('Please fill here in your dietary requirements. '
@@ -202,6 +235,8 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
             'other_gender': _('Self-describe'),
             'tshirt_size': _('What\'s your t-shirt size?'),
             'diet': _('Dietary requirements'),
+            'phone_number': _('Phone number'),
+            'level_of_study': _('Level of Study'),
         }
 
 
@@ -226,7 +261,7 @@ class SetPasswordForm(BootstrapFormMixin, forms.ModelForm):
         strip=False,
     )
     new_password2 = forms.CharField(
-        label=_("New password confirmation"),
+        label=_("Confirm your new password"),
         strip=False,
         widget=forms.PasswordInput,
         help_text=password_validation.password_validators_help_text_html(),

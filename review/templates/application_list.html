@@ -27,8 +27,11 @@
                 <div class="col-9">
                     <h1>{% translate 'Application list' %}</h1>
                 </div>
-                <div class="col-3 text-end">
+                <div class="col-3 text-end d-flex justify-content-end gap-2">
                     <button type="button" class="btn btn-secondary align-middle" data-bs-toggle="modal" data-bs-target="#urlFormLink"><i class="bi bi-info-circle-fill"></i></button>
+                    {% if perms|add_type:application_type.name|has_application_perm:'view_application' %}
+                        <a href="?type={{ application_type.name }}&download_resumes=1" class="btn btn-outline-primary" title="{% translate 'Download filtered resumes' %}"><i class="bi bi-archive"></i></a>
+                    {% endif %}
                 </div>
             {% endblock %}
             <div class="modal fade" id="urlFormLink" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
@@ -93,9 +96,9 @@
                 <button type="button" class="btn btn-primary col-12" onclick="copyInput('emails-copy')">{% translate 'Copy Emails' %}</button>
             </div>
         </div>
-        {% if not application_type.auto_confirm and perms|add_type:application_type.name|has_application_perm:'can_invite_application' %}
+    {% if not application_type.auto_confirm and perms|add_type:application_type.name|has_application_perm:'can_invite_application' %}
             <div class="d-grid gap-2 col-lg-6 mx-auto mt-3">
-                <a href="{% url 'application_invite' %}?type={{ application_type.name }}&status={{ Application.STATUS_PENDING }}&status={{ Application.STATUS_REJECTED }}" class="btn btn-primary">{% translate 'Invite or reject' %}</a>
+        <a href="{% url 'application_invite' %}?type={{ application_type.name }}&status={{ Application.STATUS_PENDING }}&status={{ Application.STATUS_REJECTED }}" class="btn btn-primary">{% translate 'Invite, waitlist or reject' %}</a>
             </div>
         {% endif %}
     {% else %}
@@ -115,7 +118,10 @@
                     <a href="{% url 'invite_friends' %}?type={{ application_type.name }}" class="btn btn-secondary">{% translate 'Group by friends' %}</a>
                 </div>
                 <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
-                    <button class="btn btn-danger" name="status" value="{{ Application.STATUS_REJECTED }}" onclick="return confirm_reject()">{% translate 'Reject selected' %}</button>
+                    <button class="btn btn-warning" name="status" value="{{ Application.STATUS_REJECTED }}" onclick="return confirm_waitlist()">{% translate 'Waitlist selected' %}</button>
+                </div>
+                <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
+                    <button class="btn btn-danger" name="status" value="{{ Application.STATUS_DECLINED }}" onclick="return confirm_reject()">{% translate 'Reject selected' %}</button>
                 </div>
             {% endblock %}
         </form>
@@ -131,12 +137,16 @@
                 }
             {% endblock %}
             function confirm_invite() {
-                let number_checked = get_invited_application_number()
-                return confirm(number_checked + ' {% translate 'applications will be invited. Are you sure?' %}')
+                let number_checked = get_invited_application_number();
+                return confirm(number_checked + " {% translate 'applications will be invited. Are you sure?' %}");
+            }
+            function confirm_waitlist() {
+                let number_checked = get_invited_application_number();
+                return confirm(number_checked + " {% translate 'applications will be waitlisted. Are you sure?' %}");
             }
             function confirm_reject() {
-                let number_checked = get_invited_application_number()
-                return confirm(number_checked + ' {% translate 'applications will be rejected. Are you sure?' %}')
+                let number_checked = get_invited_application_number();
+                return confirm(number_checked + " {% translate 'applications will be rejected. Are you sure?' %}");
             }
             $(document).ready(() => {
                 let spots = {{ application_type.get_spots_with_attrition }};
@@ -146,7 +156,7 @@
                 $('input[name="select"]').change((event) => {
                     let selected = get_invited_application_number()
                     if (selected > free_spots && !accepted_to_pass_limit) {
-                        accepted_to_pass_limit = confirm('{% translate 'You have reached the limit. Do you want to continue?' %}')
+                        accepted_to_pass_limit = confirm("{% translate 'You have reached the limit. Do you want to continue?' %}")
                     }
                     if (selected <= free_spots || accepted_to_pass_limit) {
                         progress_bar.html(`${selected} of ${free_spots} selected`)

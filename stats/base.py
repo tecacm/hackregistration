@@ -80,7 +80,7 @@ class Chart(object):
     def update_field(self, value, instance):
         updater = getattr(self.stat_model, 'update_%s' % self.field_name, None)
         if updater is not None:
-            return updater(self.stat_model, value, instance)
+            return updater(value, instance)
         return self.update_default(value, instance)
 
     def finalize(self, stats):
