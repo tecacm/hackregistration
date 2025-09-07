@@ -9,7 +9,7 @@ HACKATHON_CONTACT_EMAIL = 'hello@hackmty.com'
 HACKATHON_SOCIALS = {'Facebook': ('https://www.facebook.com/hackmty', 'bi-facebook'),
                      'Instagram': ('https://www.instagram.com/hackmty', 'bi-instagram'),
                      'Twitter': ('https://twitter.com/hackmty', 'bi-twitter'),
-                     'Github': ('https://github.com/HackAssistant', 'bi-github'), }
+                     'Github': ('https://github.com/tecacm/hackregistration', 'bi-github'), }
 if HACKATHON_CONTACT_EMAIL:
     HACKATHON_SOCIALS['Contact'] = ('mailto:' + HACKATHON_CONTACT_EMAIL, 'bi-envelope')
 
