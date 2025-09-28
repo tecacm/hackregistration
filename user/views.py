@@ -1,8 +1,13 @@
+import logging
+
+from anymail.exceptions import AnymailError
 from axes.handlers.proxy import AxesProxyHandler
 from axes.helpers import get_client_ip_address, get_cool_off
 from axes.models import AccessAttempt
 from axes.utils import reset_request
 from django.conf import settings
+import logging
+from anymail.exceptions import AnymailError
 from django.contrib import auth, messages
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.shortcuts import redirect
@@ -128,8 +133,15 @@ class Register(Login):
         if self.forms_are_valid(form, context):
             user = form.save()
             auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-            emails.send_verification_email(request=request, user=user)
-            messages.success(request, _('Successfully registered!'))
+            try:
+                emails.send_verification_email(request=request, user=user)
+                messages.success(request, _('Successfully registered!'))
+            except AnymailError as e:
+                logging.getLogger(__name__).warning("Verification email send failed during registration: %s", e)
+                messages.warning(
+                    request,
+                    _("Registered, but we couldn't send the verification email. Please confirm your email address is correct and try again."),
+                )
             return self.redirect_successful()
         context.update({'form': form, 'recaptcha_form': recaptcha})
         return self.render_to_response(context)
@@ -178,12 +190,16 @@ class NeedsVerification(EmailNotVerifiedMixin, TemplateView):
     template_name = 'needs_verification.html'
 
     def post(self, request, **kwargs):
-        emails.send_verification_email(request=request, user=request.user)
-        messages.success(request, "Verification email successfully sent")
-        return redirect('home')
+        sent = emails.send_verification_email(request=request, user=request.user)
+        if sent:
+            messages.success(request, "Verification email successfully sent")
+            return redirect('home')
+        # Don’t error out if email sending failed; inform the user and keep them on the page
+        messages.error(request, "We couldn't send the verification email. Please check your email address or try again later.")
+        return redirect('needs_verification')
 
 
-class VerifyEmail(EmailNotVerifiedMixin, View):
+class VerifyEmail(View):
     def get(self, request, **kwargs):
         try:
             uid = User.decode_encoded_pk(kwargs.get('uid'))
@@ -223,7 +239,10 @@ class ForgotPassword(TemplateView):
             try:
                 email = form.cleaned_data.get('email')
                 user = User.objects.get(email=email)
-                emails.send_password_reset_email(request=request, user=user)
+                try:
+                    emails.send_password_reset_email(request=request, user=user)
+                except AnymailError as e:
+                    logging.getLogger(__name__).warning("Password reset email send failed: %s", e)
             except User.DoesNotExist:
                 pass
             messages.success(request, 'Email sent if it exists!')

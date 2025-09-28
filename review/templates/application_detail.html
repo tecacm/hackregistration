@@ -20,6 +20,13 @@
                 <a href="{% url 'application_logs' application.get_uuid %}" class="btn btn-secondary col-12"><i class="bi bi-clipboard-check"></i> {% translate 'Logs' %}</a>
             </div>
         {% endif %}
+        {% if application and not votes and not application.type.auto_confirm and perms|add_type:application.type.name|has_application_perm:'can_invite_application' %}
+            <div class="col-12 col-lg-3 d-grid d-md-block mt-3 mt-lg-0">
+                <a href="{% url 'application_invite' %}?type={{ application.type.name }}&status={{ Application.STATUS_PENDING }}&status={{ Application.STATUS_REJECTED }}" class="btn btn-primary col-12">
+                    {% translate 'Invite, waitlist or reject' %}
+                </a>
+            </div>
+        {% endif %}
     </div>
     <div class="row">
         <div class="col-9">

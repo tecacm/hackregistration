@@ -26,6 +26,23 @@
             {% block table_list_title %}
                 <div class="col-9">
                     <h1>{% translate 'Application list' %}</h1>
+                    {% if request.GET.code %}
+                        <div class="mt-2">
+                            <span class="badge bg-info text-dark">
+                                Filtered by team code: {{ request.GET.code }}
+                                <a href="?type={{ application_type.name }}" class="text-dark text-decoration-none ms-2">&times;</a>
+                            </span>
+                        </div>
+                    {% endif %}
+                    {% if not application_type.auto_confirm and perms|add_type:application_type.name|has_application_perm:'can_invite_application' %}
+                        <div class="mt-3">
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                <a href="{% url 'application_invite' %}?type={{ application_type.name }}&status={{ Application.STATUS_PENDING }}&status={{ Application.STATUS_REJECTED }}" class="btn btn-primary btn-sm">
+                                    <i class="bi bi-person-plus-fill"></i> {% translate 'Invite / Waitlist / Reject' %}
+                                </a>
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
                 <div class="col-3 text-end d-flex justify-content-end gap-2">
                     <button type="button" class="btn btn-secondary align-middle" data-bs-toggle="modal" data-bs-target="#urlFormLink"><i class="bi bi-info-circle-fill"></i></button>
@@ -96,11 +113,7 @@
                 <button type="button" class="btn btn-primary col-12" onclick="copyInput('emails-copy')">{% translate 'Copy Emails' %}</button>
             </div>
         </div>
-    {% if not application_type.auto_confirm and perms|add_type:application_type.name|has_application_perm:'can_invite_application' %}
-            <div class="d-grid gap-2 col-lg-6 mx-auto mt-3">
-        <a href="{% url 'application_invite' %}?type={{ application_type.name }}&status={{ Application.STATUS_PENDING }}&status={{ Application.STATUS_REJECTED }}" class="btn btn-primary">{% translate 'Invite, waitlist or reject' %}</a>
-            </div>
-        {% endif %}
+    {# Bottom invite button removed; now located at top #}
     {% else %}
         <div class="progress">
             <div class="progress-bar bg-primary" role="progressbar" aria-label="Invited" style="width: {{ application_stats.accepted|percent:application_type.get_spots_with_attrition }}%">{{ application_stats.accepted }} accepted</div>
@@ -109,21 +122,23 @@
         </div>
         <form method="post" id="invite-form">
             {% csrf_token %}
-            {% include 'components/table.html' %}
-            <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
-                <button class="btn btn-primary" name="status" value="{{ Application.STATUS_INVITED }}" onclick="return confirm_invite()">{% translate 'Confirm invite' %}</button>
+            {# Top toolbar with invite actions relocated from bottom #}
+            <div class="invite-toolbar d-flex flex-wrap gap-2 align-items-center my-3">
+                <button class="btn btn-primary" name="status" value="{{ Application.STATUS_INVITED }}" onclick="return confirm_invite()">
+                    <i class="bi bi-check2-circle"></i> {% translate 'Confirm invite' %}
+                </button>
+                <a href="{% url 'invite_friends' %}?type={{ application_type.name }}" class="btn btn-secondary">
+                    <i class="bi bi-people"></i> {% translate 'Group by friends' %}
+                </a>
+                <button class="btn btn-warning" name="status" value="{{ Application.STATUS_REJECTED }}" onclick="return confirm_waitlist()">
+                    <i class="bi bi-hourglass-split"></i> {% translate 'Waitlist selected' %}
+                </button>
+                <button class="btn btn-danger" name="status" value="{{ Application.STATUS_DECLINED }}" onclick="return confirm_reject()">
+                    <i class="bi bi-x-octagon"></i> {% translate 'Reject selected' %}
+                </button>
             </div>
-            {% block more_invites %}
-                <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
-                    <a href="{% url 'invite_friends' %}?type={{ application_type.name }}" class="btn btn-secondary">{% translate 'Group by friends' %}</a>
-                </div>
-                <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
-                    <button class="btn btn-warning" name="status" value="{{ Application.STATUS_REJECTED }}" onclick="return confirm_waitlist()">{% translate 'Waitlist selected' %}</button>
-                </div>
-                <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
-                    <button class="btn btn-danger" name="status" value="{{ Application.STATUS_DECLINED }}" onclick="return confirm_reject()">{% translate 'Reject selected' %}</button>
-                </div>
-            {% endblock %}
+            {% block more_invites %}{% endblock %}
+            {% include 'components/table.html' %}
         </form>
         <script nonce="{{ request.csp_nonce }}">
             function select_all(source) {

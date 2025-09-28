@@ -13,7 +13,7 @@ from application.mixins import ApplicationPermissionRequiredMixin
 from application.models import Application, Edition, ApplicationTypeConfig, ApplicationLog
 from application.views import ParticipantTabsMixin
 from friends.filters import FriendsInviteTableFilter
-from friends.forms import FriendsForm, DevpostForm
+from friends.forms import FriendsForm, DevpostForm, TrackPreferenceForm
 from friends.models import FriendsCode
 from friends.tables import FriendInviteTable
 from review.emails import get_invitation_or_waitlist_email
@@ -55,6 +55,12 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
         else:
             context.update({"friends_form": FriendsForm()})
         context.update({'friends_max_capacity': getattr(settings, 'FRIENDS_MAX_CAPACITY', None)})
+        # Track selection visibility flag
+        try:
+            edition_obj = Edition.objects.get(pk=Edition.get_default_edition())
+            context['track_selection_open'] = getattr(edition_obj, 'track_selection_open', True)
+        except Exception:
+            context['track_selection_open'] = True
         return context
 
     def post(self, request, **kwargs):
@@ -174,3 +180,110 @@ class FriendsListInvite(ApplicationPermissionRequiredMixin, IsOrganizerMixin, Re
         else:
             messages.success(request, _('Invited: %s, Emails sent: %s' % (invited, emails or 0)))
         return redirect(reverse('invite_friends') + ('?type=%s' % self.request.GET.get('type', 'hacker')))
+
+
+class FriendsTrackSelectionView(LoginRequiredMixin, TemplateView):
+    template_name = 'friends_track_selection.html'
+
+    def get_friends_group(self):
+        return FriendsCode.objects.filter(user=self.request.user).order_by('-id').first()
+
+    def dispatch(self, request, *args, **kwargs):
+        group = self.get_friends_group()
+        if not group or not group.can_select_track():
+            messages.error(request, _('Your team must be full and all members confirmed to select a track.'))
+            return redirect(reverse('join_friends'))
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        group = self.get_friends_group()
+        context['group'] = group
+        context['track_counts'] = FriendsCode.track_counts()
+        context['track_capacity'] = FriendsCode.track_capacity()
+        # Flag controlling visibility (from Edition)
+        from application.models import Edition
+        try:
+            edition = Edition.objects.get(pk=Edition.get_default_edition())
+            context['track_selection_open'] = edition.track_selection_open
+        except Exception:
+            context['track_selection_open'] = True  # fail open if edition lookup fails
+        if group.track_assigned:
+            context['assigned'] = group.track_assigned
+            context['assigned_label'] = dict(FriendsCode.TRACKS).get(group.track_assigned, group.track_assigned)
+        else:
+            if context.get('track_selection_open'):
+                initial = {}
+                if group.track_pref_1:
+                    initial = {'track_pref_1': group.track_pref_1, 'track_pref_2': group.track_pref_2, 'track_pref_3': group.track_pref_3}
+                context['form'] = TrackPreferenceForm(initial=initial)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        group = self.get_friends_group()
+        if group.track_assigned:
+            messages.info(request, _('Track already assigned.'))
+            return redirect(reverse('friends_track_selection'))
+        # Gating disabled form submissions
+        from application.models import Edition
+        try:
+            edition = Edition.objects.get(pk=Edition.get_default_edition())
+            if not edition.track_selection_open:
+                messages.error(request, _('Track selection is currently closed.'))
+                return redirect(reverse('friends_track_selection'))
+        except Exception:
+            pass
+        form = TrackPreferenceForm(request.POST)
+        if not form.is_valid():
+            context = self.get_context_data()
+            context['form'] = form
+            return self.render_to_response(context)
+        # Save preferences to all members' records for consistency
+        prefs = [form.cleaned_data['track_pref_1'], form.cleaned_data['track_pref_2'], form.cleaned_data['track_pref_3']]
+        FriendsCode.objects.filter(code=group.code).update(track_pref_1=prefs[0], track_pref_2=prefs[1], track_pref_3=prefs[2])
+        # Assignment algorithm: pick first available preference respecting capacity
+        counts = FriendsCode.track_counts()
+        capacity = FriendsCode.track_capacity()
+        assigned = None
+        for pref in prefs:
+            if counts.get(pref, 0) < capacity:
+                assigned = pref
+                break
+        if assigned is None:
+            messages.error(request, _('All selected tracks are full. Please try different choices.'))
+            return redirect(reverse('friends_track_selection'))
+        from django.utils import timezone
+        FriendsCode.objects.filter(code=group.code).update(track_assigned=assigned, track_assigned_date=timezone.now())
+        self.send_track_email(group.code, assigned)
+        messages.success(request, _('Track assigned: %(track)s') % {'track': dict(FriendsCode.TRACKS).get(assigned, assigned)})
+        return redirect(reverse('friends_track_selection'))
+
+    def send_track_email(self, code, track):
+        # Send one email per member
+        members = FriendsCode.objects.filter(code=code).select_related('user')
+        from app.emails import Email
+        from django.urls import reverse
+        track_label = dict(FriendsCode.TRACKS).get(track, track)
+        # Build an absolute dashboard / track selection URL for the CTA button
+        try:
+            dashboard_path = reverse('friends_track_selection')
+        except Exception:
+            dashboard_path = '/'  # Fallback to site root if URL name missing
+        if self.request is not None:
+            try:
+                dashboard_url = self.request.build_absolute_uri(dashboard_path)
+            except Exception:
+                dashboard_url = dashboard_path
+        else:
+            dashboard_url = dashboard_path
+        for m in members:
+            Email(
+                name='track_assigned',
+                context={
+                    'track': track_label,
+                    'code': code,
+                    'dashboard_url': dashboard_url,
+                },
+                to=m.user.email,
+                request=self.request
+            ).send()

@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% load i18n util %}
+{% block content %}
+<div class="container py-4">
+  <h1>{% translate 'Team Track Selection' %}</h1>
+  {% if assigned %}
+    <div class="alert alert-success">{% blocktrans %}Your team has been assigned to: {{ assigned_label }}{% endblocktrans %}</div>
+  {% else %}
+    {% if track_selection_open %}
+      <p>{% translate 'Select your top 3 preferred tracks. Each track has limited capacity (63 teams).' %}</p>
+      <ul class="list-unstyled mb-3">
+        {% for key,label in group.TRACKS %}
+          <li>{{ label }} — {{ track_counts|get_item:key }} / {{ track_capacity }}</li>
+        {% endfor %}
+      </ul>
+      {% if form %}
+        <form method="post">
+          {% csrf_token %}
+          {% include 'components/bootstrap5_form.html' with form=form %}
+          <button class="btn btn-primary">{% translate 'Submit Preferences' %}</button>
+        </form>
+        <script>
+          (function() {
+            function refreshOptions() {
+              const selects = Array.from(document.querySelectorAll('select[name^="track_pref_"]'));
+              const chosen = selects.map(s => s.value).filter(v => v);
+              selects.forEach(sel => {
+                Array.from(sel.options).forEach(opt => {
+                  if (!opt.value) return; // skip empty
+                  const duplicate = chosen.includes(opt.value) && sel.value !== opt.value;
+                  opt.disabled = duplicate;
+                });
+              });
+            }
+            document.addEventListener('change', function(e) {
+              if (e.target && e.target.name && e.target.name.startsWith('track_pref_')) {
+                refreshOptions();
+              }
+            });
+            refreshOptions();
+          })();
+        </script>
+      {% endif %}
+    {% else %}
+      <div class="alert alert-info mb-3">{% translate 'Track selection is not open yet. Please check back later.' %}</div>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

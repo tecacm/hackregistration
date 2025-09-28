@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+<h1>{% translate 'Sending emails…' %}</h1>
+<p>{% blocktrans %}Sent {{ sent }} of {{ total }} so far. Provider accepted: {{ accepted_total }}.{% endblocktrans %}</p>
+<form method="post" id="continue-form">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="{{ action_name }}">
+  <input type="hidden" name="send" value="1">
+  <input type="hidden" name="run_id" value="{{ run_id }}">
+  <input type="hidden" name="offset" value="{{ sent }}">
+  <input type="hidden" name="index" value="{{ index_val }}">
+  <noscript>
+    <button type="submit" class="default">{% translate 'Continue' %}</button>
+  </noscript>
+</form>
+<script>
+  // auto-continue to the next batch after the configured delay
+  (function(){
+    var raw = document.getElementById('delay-ms-data');
+    var delay = 500;
+    try {
+      if (raw) { delay = JSON.parse(raw.textContent); }
+    } catch (e) { delay = 500; }
+    if (isNaN(delay) || delay < 0) { delay = 500; }
+    setTimeout(function(){
+      document.getElementById('continue-form').submit();
+    }, delay);
+  })();
+</script>
+{% if delay_ms is not None %}
+{{ delay_ms|json_script:"delay-ms-data" }}
+{% else %}
+<script id="delay-ms-data" type="application/json">500</script>
+{% endif %}
+{% endblock %}

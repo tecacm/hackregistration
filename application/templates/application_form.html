@@ -68,7 +68,7 @@
 
                             // AJAX request
                             $.ajax({
-                                url: '{% url 'save_draft' %}',
+                                url: '{% url "save_draft" %}',
                                 type: 'post',
                                 data: form_obj,
                                 success: function () {

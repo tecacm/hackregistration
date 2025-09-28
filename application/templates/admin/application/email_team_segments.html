@@ -1,0 +1,74 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+<h1>{% translate 'Email small/no-team applicants' %}</h1>
+<form method="post" style="max-width: 900px;">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="email_team_segments">
+  {% for pk in selected_pks %}
+    <input type="hidden" name="_selected_action" value="{{ pk }}"/>
+  {% endfor %}
+  <input type="hidden" name="index" value="{{ index_val }}"/>
+  {% if run_id %}<input type="hidden" name="run_id" value="{{ run_id }}"/>{% endif %}
+  <fieldset class="module aligned">
+    <div class="form-row">
+      <label>{{ form.application_type.label }}:</label>
+      {{ form.application_type }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.max_team_size.label }}:</label>
+      {{ form.max_team_size }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.include_no_team.label }}:</label>
+      {{ form.include_no_team }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.subject.label }}:</label>
+      {{ form.subject }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.message.label }}:</label>
+      {{ form.message }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.dry_run.label }}:</label>
+      {{ form.dry_run }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.batch_size.label }}:</label>
+      {{ form.batch_size }}
+      {% if form.batch_size.help_text %}<p class="help">{{ form.batch_size.help_text }}</p>{% endif %}
+    </div>
+    <div class="form-row">
+      <label>{{ form.batch_delay_ms.label }}:</label>
+      {{ form.batch_delay_ms }}
+      {% if form.batch_delay_ms.help_text %}<p class="help">{{ form.batch_delay_ms.help_text }}</p>{% endif %}
+    </div>
+  </fieldset>
+  <div class="submit-row">
+    <input type="submit" name="preview" value="Preview" class="default" style="margin-right: .5rem;"/>
+    <input type="submit" name="send" value="Send"/>
+  </div>
+</form>
+{% if preview_count is not None %}
+  <h2>{% blocktrans %}Preview recipients ({{ preview_count }}){% endblocktrans %}</h2>
+  <ul>
+    {% for email in preview_emails %}
+      <li>{{ email }}</li>
+    {% endfor %}
+  </ul>
+  {% if preview_subject or preview_html %}
+    <hr>
+    <h2>{% translate 'Email preview' %}</h2>
+    {% if preview_subject %}
+      <p><strong>{% translate 'Subject' %}:</strong> {{ preview_subject }}</p>
+    {% endif %}
+    {% if preview_html %}
+      <div style="border:1px solid #444; padding: 12px; background:#111;">
+        {{ preview_html|safe }}
+      </div>
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% endblock %}

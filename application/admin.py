@@ -1,13 +1,176 @@
 from django import forms
+import time
 from django.contrib import admin
+from django.template.response import TemplateResponse
 from django.utils.http import urlencode
+from django.utils.translation import gettext_lazy as _
+from django.db.models import Count, Q
 
 from application import models
+from app.emails import Email, EmailList
+from friends.models import FriendsCode
 
 
 class ApplicationAdmin(admin.ModelAdmin):
     list_filter = ('type', 'edition')
     search_fields = ('user__email', 'user__first_name', 'user__last_name')
+    actions = ('email_team_segments',)
+
+    class SegmentEmailForm(forms.Form):
+        application_type = forms.CharField(initial='Hacker', label=_('Application type'))
+        max_team_size = forms.IntegerField(min_value=1, initial=3, label=_('Max team size (<=)'))
+        include_no_team = forms.BooleanField(required=False, initial=True, label=_('Include no-team applicants'))
+        subject = forms.CharField(max_length=200, label=_('Email subject'))
+        message = forms.CharField(widget=forms.Textarea(attrs={'rows': 8}), label=_('Email message'))
+        dry_run = forms.BooleanField(required=False, initial=False, help_text=_('Preview only; do not send'))
+        batch_size = forms.IntegerField(min_value=1, initial=100, label=_('Batch size'), help_text=_('Send in chunks to avoid timeouts (e.g., 50-200).'))
+        batch_delay_ms = forms.IntegerField(min_value=0, initial=500, label=_('Delay between batches (ms)'), help_text=_('Throttle requests to respect ESP rate limits.'))
+
+    def email_team_segments(self, request, queryset):
+        """Admin action: compose and queue an email broadcast to hackers in small teams or with no team.
+
+        Ignores the explicit selection; instead uses current default edition and chosen application type.
+        """
+        edition = models.Edition.get_default_edition()
+        form = None
+        context = dict(self.admin_site.each_context(request))
+        # Preserve selected rows so Django admin recognizes this as a continued action
+        selected_pks = list(queryset.values_list('pk', flat=True))
+        index_val = request.POST.get('index', request.GET.get('index', '0'))
+        initial = {
+            'application_type': 'Hacker',
+            'max_team_size': 3,
+            'include_no_team': True,
+        }
+        if request.method == 'POST' and (request.POST.get('preview') or request.POST.get('send')):
+            form = self.SegmentEmailForm(request.POST)
+            if form.is_valid():
+                app_type = form.cleaned_data['application_type']
+                max_size = form.cleaned_data['max_team_size']
+                include_no_team = form.cleaned_data['include_no_team']
+                subject = form.cleaned_data['subject']
+                message = form.cleaned_data['message']
+                # Not used for queue creation but kept for UI clarity
+                _dry_run = form.cleaned_data['dry_run']
+
+                # Allowed statuses: Under review (P), Dubious (D), Needs change (NC)
+                allowed_statuses = [
+                    models.Application.STATUS_PENDING,
+                    models.Application.STATUS_DUBIOUS,
+                    models.Application.STATUS_NEEDS_CHANGE,
+                ]
+
+                # Compute codes for teams with <= max_size considering current edition membership
+                codes_qs = FriendsCode.objects.filter(user__application__edition=edition)
+                small_codes = codes_qs.values('code').annotate(cnt=Count('id')).filter(cnt__lte=max_size)
+                small_codes_list = list(small_codes.values_list('code', flat=True))
+
+                # Applications of given type in current edition belonging to small teams
+                small_team_apps = models.Application.objects.actual().filter(
+                    edition=edition,
+                    type__name__iexact=app_type,
+                    status__in=allowed_statuses,
+                    user__friendscode__code__in=small_codes_list
+                )
+
+                # Applications with no team at all
+                no_team_apps = models.Application.objects.actual().filter(
+                    edition=edition,
+                    type__name__iexact=app_type,
+                    status__in=allowed_statuses,
+                ).filter(~Q(user__friendscode__code__isnull=False)) if include_no_team else models.Application.objects.none()
+
+                apps_qs = (small_team_apps | no_team_apps).distinct()
+                # Strict de-duplication to avoid any repeated recipients
+                recipient_emails = list({e for e in apps_qs.values_list('user__email', flat=True).distinct() if e})
+                recipient_emails.sort()
+
+                # Build email preview using the same templates/context
+                context.update({
+                    'form': form,
+                    'preview_count': len(recipient_emails),
+                    'preview_emails': recipient_emails[:25],  # show a sample
+                    'selected_pks': selected_pks,
+                    'index_val': index_val,
+                    'run_id': None,
+                    'preview_subject': None,
+                    'preview_html': None,
+                })
+                try:
+                    preview_mail = Email(
+                        'custom_broadcast',
+                        {'subject': subject, 'message': message},
+                        to='preview@example.com',
+                        request=request,
+                    )
+                    context['preview_subject'] = preview_mail.subject
+                    context['preview_html'] = preview_mail.html_message
+                except Exception:
+                    pass
+
+                if request.POST.get('send'):
+                    # Create a background broadcast job and enqueue recipients
+                    run_id = f"segment:{request.user.id}:{int(time.time())}"
+                    b = models.Broadcast.objects.create(
+                        created_by=request.user,
+                        run_id=run_id,
+                        subject=subject,
+                        message=message,
+                        application_type=app_type,
+                        max_team_size=max_size,
+                        include_no_team=include_no_team,
+                        allowed_statuses=','.join(allowed_statuses),
+                        edition_id=edition,
+                        status=models.Broadcast.STATUS_PENDING,
+                    )
+                    # map email -> an application id (stable pick)
+                    email_to_app = {}
+                    for email, app_id in apps_qs.order_by('submission_date').values_list('user__email', 'pk'):
+                        if email and email not in email_to_app:
+                            email_to_app[email] = app_id
+                    recipients = []
+                    for email in recipient_emails:
+                        app_id = email_to_app.get(email)
+                        if not app_id:
+                            continue
+                        recipients.append(models.BroadcastRecipient(broadcast=b, application_id=app_id, email=email))
+                    if recipients:
+                        models.BroadcastRecipient.objects.bulk_create(recipients, batch_size=1000)
+                    b.total = len(recipients)
+                    b.save(update_fields=['total'])
+
+                    # Kick off background processing in-process so the user doesn't need to run a command
+                    try:
+                        import threading
+                        from application.broadcast_processor import process_one_broadcast
+                        t = threading.Thread(
+                            target=process_one_broadcast,
+                            kwargs={
+                                'broadcast_id': b.id,
+                                'batch_size': 100,
+                                'delay_ms': 500,
+                                'max_retries': 2,
+                            },
+                            daemon=True,
+                            name=f"broadcast-sender-{b.id}",
+                        )
+                        t.start()
+                        self.message_user(request, _(f"Queued and started broadcast #{b.id} to {b.total} recipient(s)."))
+                    except Exception:
+                        # If thread start fails, we still have the queued broadcast; admin can run the processor manually
+                        self.message_user(request, _(f"Queued broadcast #{b.id} to {b.total} recipient(s). Sender thread could not start; use the processor command."))
+                    from django.shortcuts import redirect
+                    from django.urls import reverse
+                    return redirect(reverse('admin:application_broadcast_changelist'))
+
+                # Just render preview
+                return TemplateResponse(request, 'admin/application/email_team_segments.html', context)
+        if form is None:
+            form = self.SegmentEmailForm(initial=initial)
+        context.update({'form': form, 'preview_count': None, 'preview_emails': [], 'selected_pks': selected_pks, 'index_val': index_val})
+        return TemplateResponse(request, 'admin/application/email_team_segments.html', context)
+
+    email_team_segments.short_description = _('Send email to small/no-team applicants…')
 
 
 class ApplicationTypeConfigAdminForm(forms.ModelForm):
@@ -85,6 +248,26 @@ class PromotionalCodeAdmin(admin.ModelAdmin):
 admin.site.register(models.Application, ApplicationAdmin)
 admin.site.register(models.ApplicationTypeConfig, ApplicationTypeConfigAdmin)
 admin.site.register(models.ApplicationLog)
-admin.site.register(models.Edition)
+@admin.register(models.Broadcast)
+class BroadcastAdmin(admin.ModelAdmin):
+    list_display = ('id', 'subject', 'created_by', 'created_at', 'status', 'total', 'accepted')
+    list_filter = ('status', 'created_at')
+    search_fields = ('subject', 'run_id')
+    readonly_fields = ('created_at', 'accepted')
+
+@admin.register(models.BroadcastRecipient)
+class BroadcastRecipientAdmin(admin.ModelAdmin):
+    list_display = ('id', 'broadcast', 'email', 'status', 'attempts', 'updated_at')
+    list_filter = ('status', 'updated_at')
+    search_fields = ('email', 'broadcast__subject', 'broadcast__run_id')
+    raw_id_fields = ('broadcast', 'application')
+
+@admin.register(models.Edition)
+class EditionAdmin(admin.ModelAdmin):
+    list_display = ('name', 'order', 'track_selection_open')
+    list_editable = ('track_selection_open', )
+    ordering = ('-order', )
+    search_fields = ('name', )
+
 admin.site.register(models.PermissionSlip)
 admin.site.register(models.PromotionalCode, PromotionalCodeAdmin)

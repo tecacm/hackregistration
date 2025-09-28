@@ -39,8 +39,13 @@ class ParticipantTabsMixin(TabsViewMixin):
                 status__in=[PermissionSlip.STATUS_NONE, PermissionSlip.STATUS_DENIED],
                 user=self.request.user, edition=edition).exists()
             application = self.request.user.application_set.invited().first()
-            tabs.append(("Permission slip", reverse("permission_slip",
-                                                    kwargs={'uuid': application.get_uuid}), action))
+            # Guard: only show the tab if there's an invited application to reference
+            if application is not None:
+                tabs.append((
+                    "Permission slip",
+                    reverse("permission_slip", kwargs={'uuid': application.get_uuid}),
+                    action,
+                ))
         if (
             is_installed("friends")
             and Application.objects.actual()
@@ -388,7 +393,7 @@ class ApplicationChangeStatus(LoginRequiredMixin, View):
                 raise PermissionDenied()
         application.set_status(new_status)
         log = ApplicationLog.create_log(application=application, user=request.user, name=status_dict.get(new_status))
-        if request.user.is_organizer:
+        if request.user.is_organizer():
             log.comment = self.request.GET.get('comment', '')[:250]
         with transaction.atomic():
             application.save()

@@ -35,6 +35,7 @@ def get_new_order():
 class Edition(models.Model):
     name = models.CharField(max_length=100)
     order = models.IntegerField(unique=True, default=get_new_order)
+    track_selection_open = models.BooleanField(default=True, help_text=_('If disabled, teams cannot view or submit track preferences.'))
 
     def __str__(self):
         return '%s - %s' % (self.order, self.name)
@@ -433,13 +434,76 @@ class ApplicationLog(models.Model):
 
     def get_grouped_reactions(self):
         reactions = {}
-        for reaction in self.reactions.order_by('date'):
-            item = reactions.get(reaction.emoji, {'count': 0, 'users_id': {}, 'users_names': []})
-            item['count'] += 1
-            item['users_id'][reaction.user_id] = reaction.id
-            item['users_names'].append(reaction.user.get_full_name())
-            reactions[reaction.emoji] = item
+        # If reactions related_name exists, group them; otherwise, return empty dict gracefully
+        try:
+            for reaction in self.reactions.order_by('date'):
+                item = reactions.get(reaction.emoji, {'count': 0, 'users_id': {}, 'users_names': []})
+                item['count'] += 1
+                item['users_id'][reaction.user_id] = reaction.id
+                item['users_names'].append(reaction.user.get_full_name())
+                reactions[reaction.emoji] = item
+        except Exception:
+            pass
         return reactions
+
+
+# Outbox models for background email broadcasts
+class Broadcast(models.Model):
+    STATUS_PENDING = 'P'
+    STATUS_RUNNING = 'R'
+    STATUS_COMPLETED = 'C'
+    STATUS_FAILED = 'F'
+    STATUSES = (
+        (STATUS_PENDING, _('Pending')),
+        (STATUS_RUNNING, _('Running')),
+        (STATUS_COMPLETED, _('Completed')),
+        (STATUS_FAILED, _('Failed')),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.RESTRICT)
+    run_id = models.CharField(max_length=128, db_index=True)
+    subject = models.CharField(max_length=200)
+    message = models.TextField()
+    application_type = models.CharField(max_length=64)
+    max_team_size = models.PositiveIntegerField(default=3)
+    include_no_team = models.BooleanField(default=True)
+    allowed_statuses = models.CharField(max_length=128, help_text=_('Comma-separated statuses.'))
+    edition_id = models.IntegerField()
+    status = models.CharField(max_length=1, choices=STATUSES, default=STATUS_PENDING)
+    total = models.PositiveIntegerField(default=0)
+    accepted = models.PositiveIntegerField(default=0)
+    errors = models.TextField(blank=True)
+
+    def __str__(self):
+        return f"Broadcast {self.id} ({self.subject})"
+
+
+class BroadcastRecipient(models.Model):
+    STATUS_PENDING = 'P'
+    STATUS_SENT = 'S'
+    STATUS_FAILED = 'F'
+    STATUSES = (
+        (STATUS_PENDING, _('Pending')),
+        (STATUS_SENT, _('Sent')),
+        (STATUS_FAILED, _('Failed')),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    broadcast = models.ForeignKey(Broadcast, on_delete=models.CASCADE, related_name='recipients')
+    application = models.ForeignKey(Application, on_delete=models.CASCADE)
+    email = models.EmailField()
+    status = models.CharField(max_length=1, choices=STATUSES, default=STATUS_PENDING, db_index=True)
+    attempts = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['broadcast', 'status'], name='brc_broadcast_status_idx'),
+            models.Index(fields=['email'], name='brc_email_idx'),
+        ]
 
 
 class DraftApplicationManager(models.QuerySet):

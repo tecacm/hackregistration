@@ -10,15 +10,26 @@ from application.models import Application
 
 class ApplicationTableFilterForm(BootstrapFormMixin, forms.Form):
     bootstrap_field_info = {'': {
-        'fields': [{'name': 'search', 'space': 10}, {'name': 'under_age', 'space': 2},
-                   {'name': 'status', 'space': 12}, {'name': 'type'}]},
+        'fields': [
+            {'name': 'search', 'space': 8},
+            {'name': 'under_age', 'space': 2},
+            {'name': 'outside_mexico', 'space': 2},
+            {'name': 'status', 'space': 12},
+            {'name': 'type'}
+        ]},
     }
 
 
 class ApplicationTableFilterFormWithPromotion(ApplicationTableFilterForm):
     bootstrap_field_info = {'': {
-        'fields': [{'name': 'search', 'space': 8}, {'name': 'under_age', 'space': 2},
-                   {'name': 'promotional_code', 'space': 2}, {'name': 'status', 'space': 12}, {'name': 'type'}]},
+        'fields': [
+            {'name': 'search', 'space': 6},
+            {'name': 'under_age', 'space': 2},
+            {'name': 'outside_mexico', 'space': 2},
+            {'name': 'promotional_code', 'space': 2},
+            {'name': 'status', 'space': 12},
+            {'name': 'type'}
+        ]},
     }
 
 
@@ -28,6 +39,7 @@ class ApplicationTableFilter(filters.FilterSet):
                                           widget=forms.CheckboxSelectMultiple(attrs={'class': 'inline'}))
     type = filters.CharFilter(field_name='type__name', widget=forms.HiddenInput)
     under_age = filters.BooleanFilter(method='under_age_filter', label=_('Under age'))
+    outside_mexico = filters.BooleanFilter(method='outside_mexico_filter', label=_('Outside Mexico'))
 
     def under_age_filter(self, queryset, name, value):
         eighteen_years_ago = timezone.now().date() - timezone.timedelta(days=18*365.25)
@@ -38,6 +50,17 @@ class ApplicationTableFilter(filters.FilterSet):
     def search_filter(self, queryset, name, value):
         return queryset.filter(Q(user__email__icontains=value) | Q(user__first_name__icontains=value) |
                                Q(user__last_name__icontains=value))
+
+    def outside_mexico_filter(self, queryset, name, value):
+        # When checked, exclude applications whose JSON data has country == "Mexico" (or "México").
+        if not value:
+            return queryset
+        return queryset.exclude(
+            Q(data__icontains='"country": "Mexico"') |
+            Q(data__icontains='"country":"Mexico"') |
+            Q(data__icontains='"country": "México"') |
+            Q(data__icontains='"country":"México"')
+        )
 
     class Meta:
         model = Application

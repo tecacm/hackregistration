@@ -21,7 +21,9 @@
                 <p>{% blocktrans %}To participate in the hackathon, we need your permission slip since you're underage. This is a standard requirement for participants under 18 to ensure your safety during the event.{% endblocktrans %}{% if not participant_can_upload_permission_slip %} {% translate 'After signing it, send it to' %} <a href="mailto:{{ app_contact }}">{{ app_contact }}</a>{% endif %}</p>
                 <div class="row justify-content-around">
                     <div class="col-12 col-lg-4 d-grid d-md-block">
-                        <a href="{% url 'permission_slip_template' application.get_uuid %}" class="btn btn-info col-12">{% trans 'Download template' %}</a>
+                        <a href="{% static 'Carta_Permiso_Menores_HackMTY.pdf' %}" class="btn btn-info col-12" target="_blank" rel="noopener">
+                            {% trans 'Download permission slip (PDF)' %}
+                        </a>
                     </div>
                 </div>
             </div>

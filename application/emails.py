@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.db.models import Q
 from django.urls import reverse
 
 from app.emails import Email
@@ -41,8 +43,16 @@ def send_email_permission_slip_upload(request, application):
         'user': application.user,
         'url': url,
     }
-    permission_slip_managers = (get_user_model().objects.with_perm('application.can_review_permission_slip')
-                                .value_list('email', flat=True))
+    # Avoid UserManager.with_perm backend ambiguity: directly fetch users with the specific permission
+    try:
+        perm = Permission.objects.get(codename='can_review_permission_slip', content_type__app_label='application')
+        permission_slip_managers = (
+            get_user_model().objects.filter(
+                Q(groups__permissions=perm) | Q(user_permissions=perm) | Q(is_superuser=True)
+            ).distinct().values_list('email', flat=True)
+        )
+    except Permission.DoesNotExist:
+        permission_slip_managers = []
     Email(name='permission_slip_upload', context=context, to=permission_slip_managers, request=request).send()
 
 

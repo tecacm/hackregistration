@@ -1,0 +1,8 @@
+{% load django_tables2 %}
+{# Custom wrapper for Bootstrap 5 responsiveness; delegate actual table markup to the library template to avoid recursion. #}
+<div class="table-responsive">
+    {% include 'django_tables2/table.html' %}
+    {# NOTE: Do not call render_table here; it would re-use this same template and recurse. #}
+    {# The table's Meta.attrs (e.g., 'table table-striped') will still apply to the <table> element. #}
+    {# Pagination and headers are handled by the included template. #}
+</div>

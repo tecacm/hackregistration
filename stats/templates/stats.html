@@ -14,7 +14,7 @@
         <div class="col-lg-2">
             <div class="col-12 d-grid d-md-block">
                 <button type="button" class="btn btn-secondary col-12 mb-2" data-bs-toggle="modal" data-bs-target="#filterModal">Filter</button>
-                {% if request.user.is_authenticated and (request.user.is_organizer or request.user.is_sponsor) %}
+                {% if request.user.is_authenticated and request.user.is_organizer or request.user.is_authenticated and request.user.is_sponsor %}
                     {% if name|lower == 'application' %}
                     <a id="download_resumes_btn" href="#" class="btn btn-primary col-12 mt-2">Download all CVs</a>
                     <script nonce="{{ request.csp_nonce }}">
@@ -176,7 +176,7 @@
                 }
                 let get_parameters = $.param(data, true)
                 location.hash = get_parameters
-                $.getJSON('{% url 'stats_data' name %}?' + get_parameters, {}, (data) => {
+                $.getJSON('{% url "stats_data" name %}?' + get_parameters, {}, (data) => {
                     $('#update_date').text(data['updated_time'])
                     $('#number_total').text(data['total'])
                     if (data['total'] > 0) {

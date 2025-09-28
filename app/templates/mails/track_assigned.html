@@ -1,0 +1,16 @@
+{% extends 'mails/base.html' %}
+{% block content %}
+<h2 style="font-family:sans-serif;font-size:22px;font-weight:600;margin:0 0 18px;color:#ffffff;">Track Assigned 🎉</h2>
+<p style="margin:0 0 15px;">Great news! Your team <strong>{{ code }}</strong> has been assigned to the <strong>{{ track }}</strong> track.</p>
+
+<p style="margin:0 0 15px;">Next steps:</p>
+<ul style="margin:0 0 18px 18px;padding:0;font-family:sans-serif;font-size:14px;">
+	<li>Align your project idea with the <strong>{{ track }}</strong> focus.</li>
+	<li>Review track-specific rules or resources (to be announced).</li>
+	<li>Make sure every teammate is set on responsibilities.</li>
+</ul>
+
+<p style="margin:0 0 18px;">If you believe this assignment is incorrect or need a change, please contact the organizing team.</p>
+
+<p style="margin:25px 0 5px;">Good luck and have fun hacking!<br>The {{ app_hack }} Team</p>
+{% endblock %}

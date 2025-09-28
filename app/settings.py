@@ -105,7 +105,7 @@ ROOT_URLCONF = 'app.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'app' / 'templates'],
+    'DIRS': [BASE_DIR / 'templates', BASE_DIR / 'app' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -113,8 +113,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'app.template.app_variables',
+                # 'app.template.app_variables',  # temporarily disabled while debugging RecursionError in templates
                 'csp.context_processors.nonce',
+                'app.template.app_variables',
             ],
             'libraries': {
                 'util': 'app.templatetags.util',
@@ -132,6 +133,7 @@ TEMPLATES = [
                 'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
+                # 'app.template.app_variables',  # temporarily disabled while debugging RecursionError in templates
                 'app.template.app_variables',
             ]
         },
@@ -259,6 +261,13 @@ THEME = 'both'
 # UserModel default
 AUTH_USER_MODEL = 'user.User'
 LOGIN_URL = '/auth/login'
+
+# Upload size limits: Django will raise RequestDataTooBig when the request
+# body exceeds DATA_UPLOAD_MAX_MEMORY_SIZE. Reverse proxy (nginx) also has
+# client_max_body_size; keep them coordinated. Defaults here raise the limit
+# to 10 MiB which is suitable for typical permission slips or resumes.
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('DATA_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024))
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('FILE_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024))
 
 # JWT settings
 JWT_OIDC = {

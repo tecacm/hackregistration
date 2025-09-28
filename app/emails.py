@@ -29,13 +29,22 @@ class Email:
 
     # Private method that renders and save the subject of the mail
     def __get_subject__(self):
-        file_template = 'mails/%s.txt' % self.name
-        self.subject = render_to_string(template_name=file_template, context=self.context, **self.render_kwargs)
+        primary = 'mails/%s.txt' % self.name
+        try:
+            self.subject = render_to_string(template_name=primary, context=self.context, **self.render_kwargs)
+        except Exception:
+            # Fallback legacy path variants
+            alt = 'mails/%s/%s.txt' % (self.name, self.name)
+            self.subject = render_to_string(template_name=alt, context=self.context, **self.render_kwargs)
 
     # Private method that renders and save the HTML content of the mail
     def __get_content__(self):
-        file_template = 'mails/%s.html' % self.name
-        self.html_message = render_to_string(template_name=file_template, context=self.context, **self.render_kwargs)
+        primary = 'mails/%s.html' % self.name
+        try:
+            self.html_message = render_to_string(template_name=primary, context=self.context, **self.render_kwargs)
+        except Exception:
+            alt = 'mails/%s/%s.html' % (self.name, self.name)
+            self.html_message = render_to_string(template_name=alt, context=self.context, **self.render_kwargs)
         self.__get_plain_text_from_html()
 
     # Private method that converts the html to plaintext

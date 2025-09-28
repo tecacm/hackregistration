@@ -1,0 +1,3 @@
+{{ subject }}
+
+Join our Discord: https://hackmty.com/discord

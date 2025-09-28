@@ -1,0 +1,22 @@
+{% extends 'admin/base_site.html' %}
+{% load i18n %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Team code: <strong>{{ team_code }}</strong></p>
+<h3>Current members</h3>
+<ul>
+  {% for m in team_members %}
+    <li>{{ m.user.get_full_name }} ({{ m.user.email }})
+      <a style="margin-left:8px" href="{% url 'admin:friends_remove_member' team_code m.id %}" onclick="return confirm('Remove this member?');">Remove</a>
+    </li>
+  {% empty %}
+    <li>No members yet.</li>
+  {% endfor %}
+</ul>
+<form method="post" style="max-width:400px" class="mt-3">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button class="default" type="submit">Add member</button>
+</form>
+<p class="mt-3"><a href="../..">Back to teams</a></p>
+{% endblock %}

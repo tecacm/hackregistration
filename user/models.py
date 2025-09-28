@@ -119,7 +119,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     TSHIRT_L = 'L'
     TSHIRT_XL = 'XL'
     TSHIRT_XXL = 'XXL'
-    TSHIRT_XXXL = 'XXXL'
 
     TSHIRT_SIZES = [
         (TSHIRT_XS, "Unisex - XS"),
@@ -128,7 +127,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         (TSHIRT_L, "Unisex - L"),
         (TSHIRT_XL, "Unisex - XL"),
         (TSHIRT_XXL, "Unisex - XXL"),
-        (TSHIRT_XXXL, "Unisex - XXXL"),
     ]
 
     first_name = models.CharField(_("first name"), max_length=150)
@@ -212,10 +210,20 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.first_name
 
     def is_organizer(self):
-        return self.groups.filter(name='Organizer').exists()
+        try:
+            return self.groups.filter(name='Organizer').exists()
+        except Exception:
+            # Defensive: if the groups relation or DB lookup fails for any reason
+            # (including unexpected recursion), treat user as not an organizer
+            # to avoid crashing template rendering.
+            return False
 
     def is_sponsor(self):
-        return self.groups.filter(name='Sponsor').exists()
+        try:
+            return self.groups.filter(name='Sponsor').exists()
+        except Exception:
+            # Defensive: avoid raising during template/context processing.
+            return False
 
     def set_unknown(self):
         self.is_active = False

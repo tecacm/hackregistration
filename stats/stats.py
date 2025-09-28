@@ -2,11 +2,16 @@ from stats import base
 
 
 class UserStats(base.BaseStats):
+    # Keep only registration timeline plus a simple counter tile
     date_joined = base.Chart(base.Chart.TIMESERIES, order=1)
-    diet = base.Chart(base.Chart.DONUT, order=2)
-    gender = base.Chart(base.Chart.DONUT, order=3)
-    other_diet = base.Chart(base.Chart.EXTRAS, order=4)
-    tshirt_size = base.Chart(base.Chart.DONUT, order=5)
+    total_accounts = base.Chart(base.Chart.EXTRAS, order=2)
+
+    def update_total_accounts(self, value, instance):
+        # Single aggregated number under key 'Total accounts'
+        if value is None:
+            value = {'Total accounts': 0}
+        value['Total accounts'] += 1
+        return value
 
 
 class ApplicationStats(base.BaseStats):
@@ -27,6 +32,9 @@ class ApplicationStats(base.BaseStats):
     previous_roles = base.ApplicationFormChart(base.Chart.DONUT, order=15)
     company = base.ApplicationFormChart(base.Chart.BAR, order=16)
     age = base.Chart(base.Chart.BAR, order=17)
+    diet = base.Chart(base.Chart.DONUT, order=18)
+    other_diet = base.Chart(base.Chart.EXTRAS, order=19)
+    tshirt_size = base.Chart(base.Chart.DONUT, order=20)
 
     def update_age(self, value, instance):
         if value is None:
@@ -51,4 +59,31 @@ class ApplicationStats(base.BaseStats):
             value['35-39'] += 1
         else:
             value['40+'] += 1
+        return value
+
+    def update_diet(self, value, instance):
+        if value is None:
+            value = {}
+        diet = getattr(instance.user, 'diet', None)
+        if diet:
+            value[diet] = value.get(diet, 0) + 1
+        return value
+
+    def update_other_diet(self, value, instance):
+        # Collect free-text other_diet from users with diet == Others
+        if value is None:
+            value = {}
+        user = instance.user
+        if getattr(user, 'diet', None) == getattr(user, 'DIET_OTHER', 'Others'):
+            txt = getattr(user, 'other_diet', '') or ''
+            if txt:
+                value[txt] = value.get(txt, 0) + 1
+        return value
+
+    def update_tshirt_size(self, value, instance):
+        if value is None:
+            value = {}
+        size = getattr(instance.user, 'tshirt_size', None)
+        if size:
+            value[size] = value.get(size, 0) + 1
         return value

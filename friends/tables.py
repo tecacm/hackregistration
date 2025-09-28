@@ -1,5 +1,7 @@
 import django_tables2 as tables
 from django.db.models import F, Avg, Count, Q, Max
+from django.utils.safestring import mark_safe
+from django.urls import reverse
 
 from app.tables import FloatColumn
 from application.models import Application
@@ -25,10 +27,18 @@ class FriendInviteTable(tables.Table):
             devpost=Max('user__friendscode__devpost_url'))
 
     def render_devpost(self, value):
-        from django.utils.safestring import mark_safe
         if value:
             return mark_safe(f'<a href="{value}" target="_blank" rel="noopener noreferrer">link</a>')
         return '-'
+
+    def render_code(self, value):
+        """Make the group code clickable to open the applications list filtered by this code."""
+        try:
+            type_param = self.request.GET.get('type') or 'Hacker'
+        except Exception:
+            type_param = 'Hacker'
+        url = f"{reverse('application_list')}?type={type_param}&code={value}"
+        return mark_safe(f'<a href="{url}">{value}</a>')
 
     class Meta:
         model = Application

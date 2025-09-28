@@ -187,7 +187,17 @@ class ApplicationList(IsOrganizerMixin, ReviewApplicationTabsMixin, SingleTableM
         return filterset
 
     def get_queryset(self):
-        return self.table_class.get_queryset(Application.objects.actual())
+        base_qs = Application.objects.actual()
+        qs = self.table_class.get_queryset(base_qs)
+        # Optional filter: limit to a specific friends group by code if provided
+        code = self.request.GET.get('code')
+        if code:
+            filtered = qs.filter(user__friendscode__code=code)
+            # Fallback: if filter yields no rows but there are applications overall for this type, ignore the code filter
+            if not filtered.exists() and qs.exists():
+                return qs
+            return filtered
+        return qs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -227,6 +237,8 @@ class ApplicationDetail(IsOrganizerMixin, ApplicationPermissionRequiredMixin, Te
         if is_installed('friends'):
             friend_code = application.user.friendscode_set.first()
             if friend_code is not None:
+                # Always show the team code
+                details[_('Friends code')] = friend_code.code
                 friends = friend_code.get_members().exclude(pk=friend_code.pk).values_list('user__email', flat=True)
                 if len(friends) > 0:
                     details[_('Number of friends')] = len(friends)

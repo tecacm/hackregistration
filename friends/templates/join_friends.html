@@ -25,6 +25,11 @@
                     <div class="alert alert-warning" role="alert">
                         {% translate "This group is full." %}
                     </div>
+                    {% if friends_code.can_select_track and track_selection_open %}
+                    <div class="mt-3">
+                        <a class="btn btn-success" href="{% url 'friends_track_selection' %}">{% translate 'Select Team Track' %}</a>
+                    </div>
+                    {% endif %}
                 {% endif %}
                 {% if members_count >= friends_max_capacity and show_devpost_until_start %}
                     <div class="card mt-2">
