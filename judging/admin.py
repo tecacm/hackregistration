@@ -1,7 +1,9 @@
 from django.contrib import admin
+from django.utils.translation import gettext_lazy as _
 
 from .models import (
 	EvaluationEventLog,
+    JudgeInviteCode,
 	JudgingEvaluation,
 	JudgingProject,
 	JudgingReleaseWindow,
@@ -46,3 +48,20 @@ class JudgingReleaseWindowAdmin(admin.ModelAdmin):
 	list_display = ('edition', 'opens_at', 'closes_at', 'is_active', 'released_at')
 	list_filter = ('edition', 'is_active')
 	readonly_fields = ('released_at', 'released_by', 'created_at', 'updated_at')
+
+
+@admin.register(JudgeInviteCode)
+class JudgeInviteCodeAdmin(admin.ModelAdmin):
+	list_display = ('code', 'label', 'is_active', 'max_uses', 'use_count', 'remaining_display', 'last_used_at', 'updated_at')
+	list_filter = ('is_active',)
+	search_fields = ('code', 'label', 'notes')
+	readonly_fields = ('use_count', 'last_used_at', 'created_at', 'updated_at', 'remaining_display')
+	fieldsets = (
+		(None, {'fields': ('code', 'label', 'notes')}),
+		(_('Usage controls'), {'fields': ('is_active', 'max_uses', 'use_count', 'remaining_display', 'last_used_at')}),
+		(_('Timestamps'), {'fields': ('created_at', 'updated_at')}),
+	)
+
+	@admin.display(description=_('Remaining uses'))
+	def remaining_display(self, obj):
+		return obj.remaining_uses if obj.remaining_uses is not None else _('Unlimited')

@@ -177,6 +177,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     phone_number = models.CharField(validators=[RegexValidator(regex=r'^\+?1?\d{9,15}$')], blank=True, max_length=20,
                                     help_text=_('Phone number must be entered in the format: +#########. Up to 15 digits allowed.'))
     level_of_study = models.CharField(max_length=120, blank=True, null=True)
+    judge_type = models.CharField(
+        max_length=32,
+        choices=getattr(settings, 'JUDGE_TYPE_CHOICES', []),
+        blank=True,
+        help_text=_('Used to personalise judging assignments and reporting.'),
+    )
 
     qr_code = models.CharField(max_length=getattr(settings, 'QR_CODE_LENGTH', 16), blank=True, db_index=True)
 

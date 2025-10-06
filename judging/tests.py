@@ -11,10 +11,10 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from application.models import Edition
+from application.models import Application, ApplicationTypeConfig, Edition
 from friends.models import FriendsCode
 
-from .models import JudgingEvaluation, JudgingProject, JudgingReleaseWindow, JudgingRubric
+from .models import JudgingEvaluation, JudgingProject, JudgingReleaseWindow, JudgingRubric, JudgeInviteCode
 from .services import release_evaluations, upsert_evaluation
 
 
@@ -190,3 +190,70 @@ class JudgingImportCommandTests(JudgingTestCase):
 		self.assertEqual(imported.name, 'DF Rubric')
 		self.assertEqual(imported.version, previous.version + 1)
 		self.assertEqual(len(imported.definition['sections']), 1)
+
+
+class JudgeSignupTests(TestCase):
+	def setUp(self):
+		self.client = Client()
+		self.edition = Edition.objects.create(name='HackMTY', order=1)
+		ApplicationTypeConfig.objects.update_or_create(
+			name='Judge',
+			defaults={
+				'vote': False,
+				'dubious': False,
+				'auto_confirm': True,
+				'compatible_with_others': True,
+				'create_user': False,
+				'hidden': True,
+			},
+		)
+		self.invite = JudgeInviteCode.objects.create(code='SECRET123', label='Expo Judges')
+
+	def test_signup_page_renders(self):
+		response = self.client.get(reverse('judge_register'))
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, 'Join the judging team')
+		self.assertContains(response, 'Invite code')
+
+	def test_signup_creates_judge_and_redirects_to_dashboard(self):
+		payload = {
+			'first_name': 'Jamie',
+			'last_name': 'Judge',
+			'email': 'jamie@example.com',
+			'judge_type': 'technical',
+			'password1': 'SecurePass!123',
+			'password2': 'SecurePass!123',
+			'invite_code': 'SECRET123',
+			'terms_and_conditions': 'on',
+		}
+		response = self.client.post(reverse('judge_register'), payload, follow=True)
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, 'Judging dashboard')
+		self.assertTrue(response.context['user'].is_authenticated)
+		self.assertEqual(response.context['user'].email, 'jamie@example.com')
+		User = get_user_model()
+		user = User.objects.get(email='jamie@example.com')
+		self.assertTrue(user.groups.filter(name='Judge').exists())
+		self.assertEqual(user.judge_type, 'technical')
+		application = Application.objects.get(user=user, type__name='Judge', edition=self.edition)
+		self.assertEqual(application.status, Application.STATUS_CONFIRMED)
+		self.assertEqual(application.form_data.get('judge_type'), 'technical')
+		self.invite.refresh_from_db()
+		self.assertEqual(self.invite.use_count, 1)
+
+	def test_signup_rejects_invalid_invite_code(self):
+		payload = {
+			'first_name': 'Taylor',
+			'last_name': 'Tester',
+			'email': 'taylor@example.com',
+			'judge_type': 'business',
+			'password1': 'SecurePass!123',
+			'password2': 'SecurePass!123',
+			'invite_code': 'WRONGCODE',
+			'terms_and_conditions': 'on',
+		}
+		response = self.client.post(reverse('judge_register'), payload)
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, 'That invite code is not valid')
+		User = get_user_model()
+		self.assertFalse(User.objects.filter(email='taylor@example.com').exists())

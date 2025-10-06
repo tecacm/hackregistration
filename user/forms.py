@@ -7,6 +7,7 @@ from django.conf import settings
 from django.contrib.auth import password_validation
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils.safestring import mark_safe
 from django.utils import timezone
 from django.core.validators import RegexValidator
@@ -14,7 +15,8 @@ from django.core.validators import RegexValidator
 from app.mixins import BootstrapFormMixin
 from app.utils import get_theme, is_instance_on_db
 from user.models import User
-from user.choices import LEVELS_OF_STUDY
+from judging.models import JudgeInviteCode
+from user.choices import LEVELS_OF_STUDY, JUDGE_TYPE_CHOICES
 from django.utils.translation import gettext_lazy as _
 
 
@@ -126,6 +128,80 @@ class RegistrationForm(UserCreationForm):
         }
 
 
+class JudgeRegistrationForm(RegistrationForm):
+    bootstrap_field_info = {'': {'fields': [
+        {'name': 'first_name', 'space': 6},
+        {'name': 'last_name', 'space': 6},
+        {'name': 'email', 'space': 12},
+        {'name': 'judge_type', 'space': 12},
+        {'name': 'password1', 'space': 12},
+        {'name': 'password2', 'space': 12},
+        {'name': 'invite_code', 'space': 12},
+        {'name': 'terms_and_conditions', 'space': 12},
+    ]}}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.invite_code_entry = None
+
+    judge_type = forms.ChoiceField(
+        choices=JUDGE_TYPE_CHOICES,
+        required=True,
+        label=_('What type of judge are you?'),
+        help_text=_('We use this to tailor project assignments and communications.'),
+    )
+    invite_code = forms.CharField(
+        label=_('Invite code'),
+        max_length=128,
+        help_text=_('Enter the invite code from your judge onboarding email.'),
+    )
+    terms_and_conditions = forms.BooleanField(
+        label=_('I agree to uphold the HackMTY judging guidelines and Code of Conduct.'),
+        help_text=_('You must agree before gaining access to the judging tools.'),
+    )
+
+    class Meta(RegistrationForm.Meta):
+        fields = ('first_name', 'last_name', 'email', 'judge_type', 'password1', 'password2')
+        labels = {}
+
+    def clean_invite_code(self):
+        code = (self.cleaned_data.get('invite_code') or '').strip()
+        if not code:
+            raise forms.ValidationError(_('Please provide your invite code.'))
+        db_code = JudgeInviteCode.find_active(code)
+        if db_code:
+            if db_code.is_exhausted:
+                raise forms.ValidationError(_('That invite code has already been used the maximum number of times.'))
+            self.invite_code_entry = db_code
+            return code
+        fallback_codes = [value.lower() for value in getattr(settings, 'JUDGE_SIGNUP_CODES', []) if value]
+        if fallback_codes:
+            if code.lower() not in fallback_codes:
+                raise forms.ValidationError(_('That invite code is not valid. Double-check your email or reach out to the organizers.'))
+            return code
+        if JudgeInviteCode.active().exists():
+            raise forms.ValidationError(_('That invite code is not valid. Double-check your email or reach out to the organizers.'))
+        raise forms.ValidationError(_('Judge registration is currently closed. Please contact the organizing team.'))
+
+    def save(self, commit=True):
+        with transaction.atomic():
+            user = super().save(commit=commit)
+            judge_type = self.cleaned_data.get('judge_type', '')
+            if judge_type is not None:
+                if commit:
+                    if user.judge_type != judge_type:
+                        user.judge_type = judge_type
+                        user.save(update_fields=['judge_type'])
+                else:
+                    user.judge_type = judge_type
+            if commit and self.invite_code_entry:
+                try:
+                    self.invite_code_entry.mark_used()
+                except ValidationError as exc:
+                    raise forms.ValidationError({'invite_code': exc.messages}) from exc
+        return user
+
+
 class UserChangeForm(forms.ModelForm):
     """A form for updating users. Includes all the fields on
     the user, but replaces the password field with admin's
@@ -146,6 +222,7 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
         {'name': 'phone_number', 'space': 6}, {'name': 'tshirt_size', 'space': 4}, {'name': 'diet', 'space': 4},
         {'name': 'other_diet', 'space': 4, 'visible': {'diet': User.DIET_OTHER}}, {'name': 'birth_date', 'space': 4},
         {'name': 'gender', 'space': 4}, {'name': 'other_gender', 'space': 4, 'visible': {'gender': User.GENDER_OTHER}},
+        {'name': 'judge_type', 'space': 4},
     ],
         'description': _('Hey there, before we begin, we would like to know a little more about you.')}, }
 
@@ -157,7 +234,13 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
         required=False,
         min_value=10,
         max_value=100,
-        help_text=_('Enter your age in years. We will not store your exact birth date, only an inferred year.')
+        help_text=_('Enter your age in years. We will not store your exact birth date, only an inferred year.'),
+        error_messages={
+            'required': _('Please tell us your age.'),
+            'invalid': _('Please enter a valid age.'),
+            'min_value': _('Age must be at least %(limit_value)s.'),
+            'max_value': _('Age can be at most %(limit_value)s.'),
+        }
     )
 
     # Override model field to enforce required at form level
@@ -171,10 +254,26 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
     )
 
     level_of_study = forms.ChoiceField(choices=LEVELS_OF_STUDY, required=True, label=_('Level of Study'))
+    judge_type = forms.ChoiceField(
+        choices=[('', _('Select judge type'))] + list(JUDGE_TYPE_CHOICES),
+        required=False,
+        label=_('Judge type'),
+        help_text=_('Let organisers know the perspective you bring when judging.'),
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        instance = kwargs.get('instance', None)
+        instance = getattr(self, 'instance', None)
+
+        birth_field = self.fields['birth_date']
+        require_age = not is_instance_on_db(instance) or not getattr(instance, 'birth_date', None)
+        if require_age:
+            birth_field.required = True
+            birth_field.widget.attrs['required'] = 'required'
+        else:
+            birth_field.required = False
+            birth_field.widget.attrs.pop('required', None)
+
         if is_instance_on_db(instance):  # instance in DB
             email_field = self.fields.get('email')
             email_field.widget.attrs['readonly'] = True
@@ -208,6 +307,8 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
     def clean_birth_date(self):
         age = self.cleaned_data.get('birth_date')
         if age in (None, ''):
+            if self.fields['birth_date'].required:
+                raise forms.ValidationError(_('Please tell us your age.'))
             return None
         # Convert supplied age to a deterministic birth_date so age calculations remain stable.
         today = timezone.now().date()
@@ -223,7 +324,7 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = User
         fields = ['first_name', 'email', 'last_name', 'phone_number', 'diet', 'other_diet', 'gender',
-                  'other_gender', 'birth_date', 'level_of_study', 'tshirt_size']
+                  'other_gender', 'birth_date', 'level_of_study', 'judge_type', 'tshirt_size']
         fields_only_public = ['birth_date', 'tshirt_size']
         help_texts = {
             'gender': _('This is for demographic purposes. You can skip this question if you want.'),
@@ -237,6 +338,7 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
             'diet': _('Dietary requirements'),
             'phone_number': _('Phone number'),
             'level_of_study': _('Level of Study'),
+            'judge_type': _('Judge type'),
         }
 
 

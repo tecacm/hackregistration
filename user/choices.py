@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 
 LEVELS_OF_STUDY = [
@@ -13,3 +14,13 @@ LEVELS_OF_STUDY = [
 	("I'm not currently a student", _("I'm not currently a student")),
 	('Prefer not to answer', _('Prefer not to answer')),
 ]
+
+DEFAULT_JUDGE_TYPE_CHOICES = [
+	('technical', _('Technical / Engineering')),
+	('product', _('Product / UX / Research')),
+	('business', _('Business / Strategy / Operations')),
+	('sponsor', _('Sponsor / Partner / Donor')),
+	('other', _('Other / Generalist')),
+]
+
+JUDGE_TYPE_CHOICES = getattr(settings, 'JUDGE_TYPE_CHOICES', DEFAULT_JUDGE_TYPE_CHOICES)

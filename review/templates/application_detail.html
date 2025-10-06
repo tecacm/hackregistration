@@ -68,6 +68,12 @@
                         <div class="col-lg-9 pb-3 text-break">{{ application.user.email }}</div>
                     </div>
                 {% endif %}
+                {% if application.user.judge_type %}
+                    <div class="row">
+                        <div class="col-lg-3 fw-bold pb-3 text-lg-end text-break">{% translate 'Judge type' %}</div>
+                        <div class="col-lg-9 pb-3 text-break">{{ application.user.get_judge_type_display }}</div>
+                    </div>
+                {% endif %}
                 <div class="row">
                     <div class="col-lg-3 fw-bold pb-3 text-lg-end text-break">{% translate 'Status' %}</div>
                     <div class="col-lg-9 pb-3 text-break">

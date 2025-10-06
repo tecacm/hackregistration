@@ -6,12 +6,14 @@ from django.utils.translation import gettext_lazy as _
 
 from app.mixins import BootstrapFormMixin
 from application.models import Application
+from user.choices import JUDGE_TYPE_CHOICES
 
 
 class ApplicationTableFilterForm(BootstrapFormMixin, forms.Form):
     bootstrap_field_info = {'': {
         'fields': [
-            {'name': 'search', 'space': 8},
+            {'name': 'search', 'space': 6},
+            {'name': 'judge_type', 'space': 2},
             {'name': 'under_age', 'space': 2},
             {'name': 'outside_mexico', 'space': 2},
             {'name': 'status', 'space': 12},
@@ -24,6 +26,7 @@ class ApplicationTableFilterFormWithPromotion(ApplicationTableFilterForm):
     bootstrap_field_info = {'': {
         'fields': [
             {'name': 'search', 'space': 6},
+            {'name': 'judge_type', 'space': 2},
             {'name': 'under_age', 'space': 2},
             {'name': 'outside_mexico', 'space': 2},
             {'name': 'promotional_code', 'space': 2},
@@ -38,6 +41,12 @@ class ApplicationTableFilter(filters.FilterSet):
     status = filters.MultipleChoiceFilter(choices=Application.STATUS,
                                           widget=forms.CheckboxSelectMultiple(attrs={'class': 'inline'}))
     type = filters.CharFilter(field_name='type__name', widget=forms.HiddenInput)
+    judge_type = filters.ChoiceFilter(
+        field_name='user__judge_type',
+        choices=JUDGE_TYPE_CHOICES,
+        empty_label=_('All judge types'),
+        label=_('Judge type'),
+    )
     under_age = filters.BooleanFilter(method='under_age_filter', label=_('Under age'))
     outside_mexico = filters.BooleanFilter(method='outside_mexico_filter', label=_('Outside Mexico'))
 
@@ -64,11 +73,11 @@ class ApplicationTableFilter(filters.FilterSet):
 
     class Meta:
         model = Application
-        fields = ['search', 'status', 'type']
+        fields = ['search', 'judge_type', 'status', 'type']
         form = ApplicationTableFilterForm
 
 
 class ApplicationTableFilterWithPromotion(ApplicationTableFilter):
     class Meta(ApplicationTableFilter.Meta):
-        fields = ['search', 'status', 'type', 'promotional_code']
+        fields = ['search', 'judge_type', 'status', 'type', 'promotional_code']
         form = ApplicationTableFilterFormWithPromotion

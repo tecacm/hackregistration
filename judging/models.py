@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, F, Q
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
@@ -70,6 +70,63 @@ def default_rubric_definition():
 def generate_qr_slug(length: int = 8) -> str:
 	alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 	return get_random_string(length, allowed_chars=alphabet)
+
+
+class JudgeInviteCode(models.Model):
+	code = models.CharField(max_length=128, unique=True)
+	label = models.CharField(max_length=120, blank=True)
+	notes = models.TextField(blank=True)
+	is_active = models.BooleanField(default=True)
+	max_uses = models.PositiveIntegerField(null=True, blank=True, help_text=_('Leave blank for unlimited uses.'))
+	use_count = models.PositiveIntegerField(default=0)
+	last_used_at = models.DateTimeField(blank=True, null=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ['-is_active', 'code']
+		verbose_name = _('judge invite code')
+		verbose_name_plural = _('judge invite codes')
+
+	def __str__(self):
+		return self.label or self.code
+
+	@property
+	def remaining_uses(self):
+		if self.max_uses is None:
+			return None
+		return max(self.max_uses - self.use_count, 0)
+
+	@property
+	def is_exhausted(self):
+		return self.max_uses is not None and self.use_count >= self.max_uses
+
+	@classmethod
+	def active(cls):
+		return cls.objects.filter(is_active=True)
+
+	@classmethod
+	def find_active(cls, code: str):
+		return cls.active().filter(code__iexact=code).first()
+
+	def mark_used(self):
+		if not self.is_active or self.is_exhausted:
+			raise ValidationError(_('This invite code is no longer available.'))
+		updated = type(self).objects.filter(pk=self.pk, is_active=True).update(
+			use_count=F('use_count') + 1,
+			last_used_at=timezone.now(),
+		)
+		if not updated:
+			raise ValidationError(_('Unable to register invite code usage. Please try another code.'))
+		self.refresh_from_db(fields=['use_count', 'last_used_at'])
+		if self.is_exhausted:
+			type(self).objects.filter(pk=self.pk).update(is_active=False)
+			self.is_active = False
+
+	def save(self, *args, **kwargs):
+		if self.max_uses is not None and self.max_uses == 0:
+			raise ValidationError({'max_uses': _('Max uses must be greater than zero when provided.')})
+		return super().save(*args, **kwargs)
 
 
 class JudgingRubric(models.Model):

@@ -15,17 +15,27 @@ from dotenv import load_dotenv
 
 from django.contrib.messages import constants as message_constants
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from .hackathon_variables import *
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carga las variables del archivo .env antes de leer configuraciones dependientes
+load_dotenv(os.path.join(BASE_DIR, '.env'))
+
 FRIENDS_MAX_CAPACITY = 4
+JUDGE_SIGNUP_CODES = [code.strip() for code in os.getenv('JUDGE_SIGNUP_CODES', '').split(',') if code.strip()]
+JUDGE_TYPE_CHOICES = [
+    ('technical', _('Technical / Engineering')),
+    ('product', _('Product / UX / Research')),
+    ('business', _('Business / Strategy / Operations')),
+    ('sponsor', _('Sponsor / Partner / Donor')),
+    ('other', _('Other / Generalist')),
+]
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Carga las variables del archivo .env
-load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/

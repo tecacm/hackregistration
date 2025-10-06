@@ -19,6 +19,7 @@ This configurations will be divided in application configurations and libraries 
 
 - **[Friends](configuration/apps/friends.md)**: This optional app enables the participants to apply with their friends and then for the organizers to group their applications 
 in order to invite all the friends.
+- **[Judging](configuration/apps/judging.md)**: Configure invite codes and other judge-facing options for the review panel.
 
 </details>
 

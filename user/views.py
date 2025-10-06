@@ -1,3 +1,4 @@
+import json
 import logging
 
 from anymail.exceptions import AnymailError
@@ -6,24 +7,34 @@ from axes.helpers import get_client_ip_address, get_cool_off
 from axes.models import AccessAttempt
 from axes.utils import reset_request
 from django.conf import settings
-import logging
-from anymail.exceptions import AnymailError
 from django.contrib import auth, messages
+from django.contrib.auth.models import Group
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.shortcuts import redirect
-from django.urls import reverse, resolve, reverse_lazy
+from django.urls import reverse, resolve, reverse_lazy, NoReverseMatch
 from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView
 from django.utils.translation import gettext as _
+from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from app.mixins import TabsViewMixin
 from user import emails
-from user.forms import LoginForm, UserProfileForm, ForgotPasswordForm, SetPasswordForm, \
-    RegistrationForm, RecaptchaForm
+from user.forms import (
+    LoginForm,
+    UserProfileForm,
+    ForgotPasswordForm,
+    SetPasswordForm,
+    RegistrationForm,
+    RecaptchaForm,
+    JudgeRegistrationForm,
+)
 from user.mixins import LoginRequiredMixin, EmailNotVerifiedMixin
 from user.models import User
 from user.tokens import AccountActivationTokenGenerator
+from judging.models import JudgeInviteCode
+from application.models import Application, ApplicationTypeConfig, Edition
 
 
 class AuthTemplateViews(TabsViewMixin, TemplateView):
@@ -51,7 +62,10 @@ class AuthTemplateViews(TabsViewMixin, TemplateView):
         if user is not None and getattr(user, 'is_authenticated', False):
             try:
                 if user.groups.filter(name='Judge').exists():
-                    return redirect(reverse('judges_guide'))
+                    try:
+                        return redirect(reverse('judging:dashboard'))
+                    except NoReverseMatch:
+                        return redirect(reverse('event:judges_guide'))
             except Exception:
                 # Defensive: if group lookup fails, fall back to the home page
                 pass
@@ -132,28 +146,57 @@ class Login(AuthTemplateViews):
 
 
 class Register(Login):
+    form_class = RegistrationForm
+
+    def get_form_class(self):
+        return self.form_class
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context.update({'form': RegistrationForm(), 'auth': 'register'})
+        context.update({'form': self.get_form_class()(), 'auth': 'register'})
         context.pop("blocked_message", None)
         return context
 
+    def after_user_created(self, user):
+        return user
+
+    def should_send_verification_email(self):
+        return True
+
+    def get_success_message(self):
+        return _('Successfully registered!')
+
     def post(self, request, **kwargs):
         context = self.get_context_data(**kwargs)
-        form = RegistrationForm(request.POST)
+        form_class = self.get_form_class()
+        form = form_class(request.POST)
         recaptcha = RecaptchaForm(request.POST, request=request)
         if self.forms_are_valid(form, context):
-            user = form.save()
-            auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             try:
-                emails.send_verification_email(request=request, user=user)
-                messages.success(request, _('Successfully registered!'))
-            except AnymailError as e:
-                logging.getLogger(__name__).warning("Verification email send failed during registration: %s", e)
-                messages.warning(
-                    request,
-                    _("Registered, but we couldn't send the verification email. Please confirm your email address is correct and try again."),
-                )
+                with transaction.atomic():
+                    user = form.save()
+            except ValidationError as exc:
+                error_dict = exc.message_dict if hasattr(exc, 'message_dict') else {'__all__': exc.messages}
+                for field, field_messages in error_dict.items():
+                    target_field = field if field in form.fields else None
+                    for message in field_messages:
+                        form.add_error(target_field, message)
+                context.update({'form': form, 'recaptcha_form': recaptcha})
+                return self.render_to_response(context)
+            self.after_user_created(user)
+            auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            if self.should_send_verification_email():
+                try:
+                    emails.send_verification_email(request=request, user=user)
+                    messages.success(request, self.get_success_message())
+                except AnymailError as e:
+                    logging.getLogger(__name__).warning("Verification email send failed during registration: %s", e)
+                    messages.warning(
+                        request,
+                        _("Registered, but we couldn't send the verification email. Please confirm your email address is correct and try again."),
+                    )
+            else:
+                messages.success(request, self.get_success_message())
             return self.redirect_successful()
         context.update({'form': form, 'recaptcha_form': recaptcha})
         return self.render_to_response(context)
@@ -170,6 +213,92 @@ class Logout(View):
         if next_[0] != '/':
             next_ = reverse('login')
         return redirect(next_)
+
+
+class JudgeRegister(Register):
+    template_name = 'judges/signup.html'
+    form_class = JudgeRegistrationForm
+
+    def get_form(self):
+        initial = {}
+        code = self.request.GET.get('code')
+        if code:
+            initial['invite_code'] = code
+        return self.get_form_class()(initial=initial)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            'auth': 'join as judge',
+            'tabs': [],
+            'headline': _('Welcome judges!'),
+            'subheadline': _('Create your account to access the scoring tools and event briefings.'),
+            'judging_dashboard_url': reverse('judging:dashboard'),
+            'judging_launch_url': reverse('judging:launch'),
+            'judges_guide_url': reverse('event:judges_guide'),
+            'submit_label': _('Join as judge'),
+              'invite_required': JudgeInviteCode.active().exists() or bool(getattr(settings, 'JUDGE_SIGNUP_CODES', [])),
+        })
+        return context
+
+    def after_user_created(self, user):
+        group, _ = Group.objects.get_or_create(name='Judge')
+        user.groups.add(group)
+        if not getattr(user, 'email_verified', False):
+            user.email_verified = True
+            user.save(update_fields=['email_verified'])
+        self.ensure_judge_application(user)
+        return user
+
+    def ensure_judge_application(self, user):
+        edition = Edition.objects.order_by('-order').first()
+        if edition is None:
+            return
+
+        defaults = {
+            'start_application_date': timezone.now(),
+            'end_application_date': timezone.now() + timezone.timedelta(days=365),
+            'vote': False,
+            'dubious': False,
+            'auto_confirm': True,
+            'compatible_with_others': True,
+            'create_user': False,
+            'hidden': True,
+        }
+        judge_type_config, _ = ApplicationTypeConfig.objects.get_or_create(name='Judge', defaults=defaults)
+
+        now = timezone.now()
+        application, _ = Application.objects.get_or_create(
+            user=user,
+            type=judge_type_config,
+            edition=edition,
+            defaults={
+                'status': Application.STATUS_CONFIRMED,
+                'submission_date': now,
+                'last_modified': now,
+                'status_update_date': now,
+            },
+        )
+
+        judge_type_value = getattr(user, 'judge_type', '')
+        if judge_type_value:
+            try:
+                data = json.loads(application.data) if application.data else {}
+            except json.JSONDecodeError:
+                data = {}
+            if data.get('judge_type') != judge_type_value:
+                data['judge_type'] = judge_type_value
+                application.data = json.dumps(data)
+                application.save(update_fields=['data'])
+
+    def should_send_verification_email(self):
+        return False
+
+    def get_success_message(self):
+        return _('Welcome to the judging team! You are ready to score projects.')
+
+    def redirect_successful(self):
+        return redirect(reverse('judging:dashboard'))
 
 
 class Profile(LoginRequiredMixin, TemplateView):

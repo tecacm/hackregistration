@@ -16,12 +16,12 @@ class UserAdmin(BaseUserAdmin):
     # The fields to be used in displaying the User model.
     # These override the definitions on the base UserAdmin
     # that reference specific fields on auth.User.
-    list_display = ('email', 'first_name', 'last_name', 'is_staff')
-    list_filter = ('is_staff', 'is_superuser', 'groups')
+    list_display = ('email', 'first_name', 'last_name', 'judge_type', 'is_staff')
+    list_filter = ('judge_type', 'is_staff', 'is_superuser', 'groups')
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
         ('Personal info', {'fields': (
-            'first_name', 'last_name', 'phone_number', 'level_of_study', 'diet', 'other_diet', 'gender',
+            'first_name', 'last_name', 'phone_number', 'level_of_study', 'judge_type', 'diet', 'other_diet', 'gender',
             'other_gender', 'tshirt_size', 'qr_code', 'display_age'
         )}),
         ('Permissions', {'fields': ('email_verified', 'is_staff', 'is_superuser', 'groups', 'user_permissions',
@@ -35,7 +35,7 @@ class UserAdmin(BaseUserAdmin):
             'fields': ('first_name', 'last_name', 'email', 'password1', 'password2'),
         }),
     )
-    search_fields = ('email', 'first_name', 'last_name', 'level_of_study')
+    search_fields = ('email', 'first_name', 'last_name', 'level_of_study', 'judge_type')
     ordering = ('email', 'first_name', 'last_name')
     filter_horizontal = ()
 

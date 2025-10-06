@@ -1,0 +1,605 @@
+{% extends 'base.html' %}
+{% load i18n %}
+{% block head %}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" integrity="sha512-E8QSvWZ0eCLGk4km3hxSsNmGWbLtSCSUcewDQPQWZF6pEU8GlT8a5fF32wOl1i8ftdMhssTrF/OhyGWwonTcXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style nonce="{{ CSP_NONCE }}">
+        .judge-signup-page {
+            position: relative;
+            padding: clamp(3rem, 5vw, 5rem) 0;
+            background: radial-gradient(circle at 0% 0%, rgba(124, 58, 237, 0.28) 0%, rgba(29, 78, 216, 0.35) 35%, rgba(15, 23, 42, 0.92) 100%);
+            overflow: hidden;
+        }
+
+        .judge-signup-page::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: linear-gradient(135deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%),
+                              linear-gradient(225deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%),
+                              linear-gradient(45deg, rgba(148, 163, 184, 0.12) 25%, transparent 25%),
+                              linear-gradient(315deg, rgba(148, 163, 184, 0.12) 25%, rgba(15, 23, 42, 0.05) 25%);
+            background-size: 32px 32px;
+            opacity: 0.35;
+            pointer-events: none;
+        }
+
+        .judge-signup-hero {
+            position: relative;
+            z-index: 1;
+            border-radius: 28px;
+            background: linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%);
+            color: #f8fafc;
+            padding: clamp(2rem, 4vw, 3rem);
+            box-shadow: 0 35px 55px -20px rgba(15, 23, 42, 0.55);
+            min-height: 100%;
+            isolation: isolate;
+        }
+
+        .judge-signup-hero h1 {
+            font-size: clamp(2rem, 2.4vw, 2.6rem);
+        }
+
+        .judge-signup-steps {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .judge-signup-step-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.5rem;
+            height: 2.5rem;
+            border-radius: 0.9rem;
+            background: rgba(248, 250, 252, 0.95);
+            color: #1d4ed8;
+            font-weight: 700;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 20px -12px rgba(15, 23, 42, 0.6);
+        }
+
+        .judge-signup-card {
+            border-radius: 28px;
+            background: #ffffff;
+            box-shadow: 0 35px 60px -25px rgba(15, 23, 42, 0.45);
+            min-height: 100%;
+            position: relative;
+        }
+
+        .judge-signup-card::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+        }
+
+        .judge-signup-card.bg-dark {
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .judge-signup-card.bg-dark .form-control,
+        .judge-signup-card.bg-dark .form-select {
+            background-color: #1e293b;
+            border-color: rgba(148, 163, 184, 0.4);
+            color: #e2e8f0;
+        }
+
+        .judge-signup-card.bg-dark .form-control:focus,
+        .judge-signup-card.bg-dark .form-select:focus {
+            background-color: #0f172a;
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 0.25rem rgba(96, 165, 250, 0.25);
+        }
+
+        .judge-signup-card .form-control,
+        .judge-signup-card .form-select {
+            border-radius: 14px;
+            padding: 0.85rem 1rem;
+        }
+
+        .judge-signup-card .btn-primary {
+            border-radius: 14px;
+            padding: 0.9rem 1rem;
+            font-weight: 600;
+            box-shadow: 0 18px 35px -18px rgba(37, 99, 235, 0.6);
+        }
+
+        .judge-signup-card.bg-dark .btn-primary {
+            box-shadow: 0 18px 35px -18px rgba(96, 165, 250, 0.6);
+        }
+
+        .judge-signup-links a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .judge-signup-links a:hover {
+            text-decoration: underline;
+        }
+
+        .judge-signup-invite-callout {
+            border-radius: 18px;
+            padding: 1rem 1.25rem;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(129, 140, 248, 0.18));
+            border: 1px solid rgba(59, 130, 246, 0.28);
+            color: #1e293b;
+            display: flex;
+            align-items: start;
+            gap: 0.85rem;
+        }
+
+        .judge-signup-card.bg-dark .judge-signup-invite-callout {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(129, 140, 248, 0.28));
+            border-color: rgba(148, 163, 184, 0.35);
+            color: #e2e8f0;
+        }
+
+        .judge-signup-invite-callout .invite-chip {
+            background: rgba(59, 130, 246, 0.16);
+            color: #1d4ed8;
+            border-radius: 999px;
+            padding: 0.35rem 0.9rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            box-shadow: 0 10px 25px -18px rgba(37, 99, 235, 0.6);
+        }
+
+        .judge-signup-card.bg-dark .judge-signup-invite-callout .invite-chip {
+            background: rgba(96, 165, 250, 0.22);
+            color: #bfdbfe;
+        }
+
+        .password-requirements {
+            margin: 0;
+            padding-left: 0;
+            list-style: none;
+        }
+
+        .password-requirements li {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.35rem;
+            transition: color 150ms ease;
+        }
+
+        .password-requirements li:last-child {
+            margin-bottom: 0;
+        }
+
+        .password-requirements .requirement-icon {
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            background: rgba(248, 113, 113, 0.2);
+            color: #b91c1c;
+            transition: background-color 150ms ease, color 150ms ease;
+        }
+
+        .password-requirements li.text-success .requirement-icon {
+            background: rgba(74, 222, 128, 0.22);
+            color: #15803d;
+        }
+
+        .password-feedback,
+        .password-confirm-feedback {
+            display: block;
+        }
+
+        #id_invite_code {
+            border-width: 2px;
+            border-color: rgba(59, 130, 246, 0.45);
+            box-shadow: 0 12px 30px -20px rgba(37, 99, 235, 0.45);
+            transition: border-color 200ms ease, box-shadow 200ms ease;
+        }
+
+        #id_invite_code:focus-visible {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 0.25rem rgba(37, 99, 235, 0.25);
+        }
+
+        #id_invite_code.is-invalid {
+            border-color: #ef4444;
+            box-shadow: 0 0 0 0.25rem rgba(248, 113, 113, 0.2);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .judge-signup-card,
+            .judge-signup-hero,
+            .judge-signup-card::after,
+            #id_invite_code {
+                transition: none;
+                animation: none;
+            }
+        }
+
+        @media (max-width: 991.98px) {
+            .judge-signup-card,
+            .judge-signup-hero {
+                border-radius: 22px;
+            }
+        }
+    </style>
+{% endblock %}
+{% block subtitle %}{% trans "Judge sign up" %}{% endblock %}
+{% block container %}
+    <section class="judge-signup-page">
+        <div class="container-lg position-relative">
+            <div class="row g-4 g-xl-5 align-items-stretch">
+                <div class="col-lg-5">
+                    <div class="judge-signup-hero d-flex flex-column gap-4">
+                        <div>
+                            <div class="text-uppercase small fw-semibold text-white-50">{% trans "HackMTY Judging" %}</div>
+                            <h1 class="fw-bold mb-2">{{ headline }}</h1>
+                            <p class="lead mb-0">{{ subheadline }}</p>
+                        </div>
+                        <ol class="judge-signup-steps d-grid gap-4">
+                            <li class="d-flex gap-3 align-items-start">
+                                <span class="judge-signup-step-index">1</span>
+                                <span class="fw-medium">{% trans "Sign up with the email you’ll check during the event." %}</span>
+                            </li>
+                            <li class="d-flex gap-3 align-items-start">
+                                <span class="judge-signup-step-index">2</span>
+                                <span class="fw-medium">{% trans "Enter the invite code shared by the judging lead to unlock your access." %}</span>
+                            </li>
+                            <li class="d-flex gap-3 align-items-start">
+                                <span class="judge-signup-step-index">3</span>
+                                <span class="fw-medium">{% blocktrans with guide_url=judges_guide_url %}Review the <a class="text-white fw-semibold" href="{{ guide_url }}">judges guide</a> for rubric tips and day-of logistics.{% endblocktrans %}</span>
+                            </li>
+                        </ol>
+                        <div class="mt-auto small text-white-75 d-flex flex-column gap-2">
+                            <div>{% blocktrans with launch_url=judging_launch_url %}Already set up? Jump straight to the <a class="text-white fw-semibold" href="{{ launch_url }}">judging launchpad</a>.{% endblocktrans %}</div>
+                            <div class="d-flex gap-3">
+                                <a class="judge-signup-links d-inline-flex align-items-center gap-2 fw-semibold" href="{{ judging_dashboard_url }}">
+                                    <i class="bi bi-speedometer"></i>{% trans "Dashboard" %}
+                                </a>
+                                <span class="opacity-50">•</span>
+                                <a class="judge-signup-links d-inline-flex align-items-center gap-2 fw-semibold" href="{{ judges_guide_url }}">
+                                    <i class="bi bi-journal-text"></i>{% trans "Guide" %}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-7">
+                    <div class="judge-signup-card bg-{{ theme }} text-{% if theme == 'dark' %}white{% else %}black{% endif %}">
+                        <form method="post" id="judge-register-form" class="p-4 p-xl-5 d-flex flex-column gap-4">
+                            {% csrf_token %}
+                            <div class="d-flex flex-column gap-2">
+                                <div class="text-uppercase small fw-semibold text-primary">{% trans "Invitation only" %}</div>
+                                <h2 class="h4 fw-semibold mb-0">{% trans "Join the judging team" %}</h2>
+                                <p class="mb-0 text-muted">{% trans "We’ll use your profile to personalise assignments and keep you in the loop before and during the expo." %}</p>
+                                {% if invite_required %}
+                                    <div class="judge-signup-invite-callout" role="status" aria-live="polite">
+                                        <span class="invite-chip">{% trans "Invite code" %}</span>
+                                        <div class="small fw-medium mb-0">
+                                            {% trans "Have your invite code handy—it confirms your place on the judging team and unlocks the dashboard." %}
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-warning shadow-sm mb-0" role="alert">
+                                        <i class="bi bi-exclamation-triangle-fill me-2"></i>{% trans "Judge registration currently requires an invite. Reach out to the organising team to request a code." %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            {% include 'components/bootstrap5_form.html' with only_errors=True %}
+                            {% include 'components/bootstrap5_form.html' with only_form=True %}
+                            {% if recaptcha_form %}
+                                <div class="text-center mb-1">
+                                    {% for field in recaptcha_form %}
+                                        <div class="d-inline-block">{{ field }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            <div class="d-grid gap-3">
+                                <button type="submit" class="btn btn-primary btn-lg">{{ submit_label|default:auth|title }}</button>
+                                <div class="text-center small text-muted">
+                                    {% url 'login' as login_href %}
+                                    {% blocktrans with login_url=login_href %}Already have an account? <a href="{{ login_url }}" class="fw-semibold">Log in</a>.{% endblocktrans %}
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+{% endblock %}
+{% block scripts %}
+    <script nonce="{{ CSP_NONCE }}">
+        $(document).ready(() => {
+            const min_chars = Number('{{ auth_password_validators.min_characters|default:"8" }}');
+            const min_digits = Number('{{ auth_password_validators.min_length_digit|default:"0" }}');
+            const min_special = Number('{{ auth_password_validators.min_length_special|default:"0" }}');
+            const min_lower = Number('{{ auth_password_validators.min_length_lower|default:"0" }}');
+            const min_upper = Number('{{ auth_password_validators.min_length_upper|default:"0" }}');
+            const raw_special_class = '{{ auth_password_validators.special_characters|default:""|escapejs }}';
+
+            const templateStrings = {
+                requirement: '{{ _("%(count)s %(item)s")|escapejs }}',
+                requirementWithExample: '{{ _("%(requirement)s (e.g. %(examples)s)")|escapejs }}',
+                requirementPrefix: '{{ _("At least %(requirement)s")|escapejs }}',
+                add: '{{ _("Add %(items)s.")|escapejs }}',
+                passwordsMustMatch: '{{ _("Passwords must match.")|escapejs }}'
+            };
+
+            const words = {
+                character: { singular: '{{ _("character")|escapejs }}', plural: '{{ _("characters")|escapejs }}' },
+                digit: { singular: '{{ _("digit")|escapejs }}', plural: '{{ _("digits")|escapejs }}' },
+                lower: { singular: '{{ _("lower case letter")|escapejs }}', plural: '{{ _("lower case letters")|escapejs }}' },
+                upper: { singular: '{{ _("upper case letter")|escapejs }}', plural: '{{ _("upper case letters")|escapejs }}' },
+                special: { singular: '{{ _("special character")|escapejs }}', plural: '{{ _("special characters")|escapejs }}' }
+            };
+
+            const andWord = '{{ _("and")|escapejs }}';
+
+            function formatTemplate(template, values) {
+                const normalized = template.replace(/%%/g, '%');
+                return normalized.replace(/%\(([^)]+)\)s/g, (_, key) => (values[key] ?? ''));
+            }
+
+            function parseRegex(pattern) {
+                if (!pattern) {
+                    return { source: '', flags: '' };
+                }
+                let source = pattern;
+                let flags = 'g';
+                if (pattern.startsWith('/')) {
+                    const lastSlash = pattern.lastIndexOf('/');
+                    if (lastSlash > 0) {
+                        source = pattern.slice(1, lastSlash);
+                        flags = pattern.slice(lastSlash + 1) || 'g';
+                    }
+                }
+                if (!flags.includes('g')) {
+                    flags += 'g';
+                }
+                return { source, flags };
+            }
+
+            const parsedSpecial = parseRegex(raw_special_class);
+            const special_regex = parsedSpecial.source ? new RegExp(parsedSpecial.source, parsedSpecial.flags) : null;
+            const special_preview = (() => {
+                if (!parsedSpecial.source) {
+                    return '';
+                }
+                const open = parsedSpecial.source.indexOf('[');
+                const close = parsedSpecial.source.lastIndexOf(']');
+                if (open !== -1 && close !== -1 && close > open) {
+                    return parsedSpecial.source.slice(open + 1, close).replace(/\\\\/g, '\\');
+                }
+                return parsedSpecial.source.replace(/\\\\/g, '\\');
+            })();
+
+            function requirementPhrase(count, singularPlural) {
+                return formatTemplate(templateStrings.requirement, {
+                    count,
+                    item: count === 1 ? singularPlural.singular : singularPlural.plural,
+                });
+            }
+
+            function requirementLabel(baseRequirement, preview = '') {
+                if (preview) {
+                    return formatTemplate(templateStrings.requirementPrefix, {
+                        requirement: formatTemplate(templateStrings.requirementWithExample, {
+                            requirement: baseRequirement,
+                            examples: preview,
+                        }),
+                    });
+                }
+                return formatTemplate(templateStrings.requirementPrefix, { requirement: baseRequirement });
+            }
+
+            function formatList(items) {
+                if (!items.length) {
+                    return '';
+                }
+                if (items.length === 1) {
+                    return items[0];
+                }
+                const head = items.slice(0, -1).join(', ');
+                const tail = items.slice(-1)[0];
+                return `${head} ${andWord} ${tail}`;
+            }
+
+            const password_input = $('#id_password1');
+            const password_input_repeat = $('#id_password2');
+            const passwordWrapper = password_input.closest('.mb-3');
+            let helpContainer = passwordWrapper.find('.form-text');
+            if (!helpContainer.length) {
+                helpContainer = $('<div class="form-text mt-2"></div>');
+                password_input.after(helpContainer);
+            }
+            helpContainer.empty();
+
+            const requirementList = $('<ul class="password-requirements" id="password-requirements" aria-live="polite"></ul>');
+            const requirementConfigs = [];
+
+            if (min_chars > 0) {
+                const requirement = requirementPhrase(min_chars, words.character);
+                requirementConfigs.push({
+                    key: 'length',
+                    label: requirementLabel(requirement),
+                    missing: requirement,
+                    test: (password) => password.length >= min_chars,
+                });
+            }
+            if (min_digits > 0) {
+                const requirement = requirementPhrase(min_digits, words.digit);
+                requirementConfigs.push({
+                    key: 'digit',
+                    label: requirementLabel(requirement),
+                    missing: requirement,
+                    test: (password) => (password.match(/[0-9]/g)?.length ?? 0) >= min_digits,
+                });
+            }
+            if (min_lower > 0) {
+                const requirement = requirementPhrase(min_lower, words.lower);
+                requirementConfigs.push({
+                    key: 'lower',
+                    label: requirementLabel(requirement),
+                    missing: requirement,
+                    test: (password) => (password.match(/[a-z]/g)?.length ?? 0) >= min_lower,
+                });
+            }
+            if (min_upper > 0) {
+                const requirement = requirementPhrase(min_upper, words.upper);
+                requirementConfigs.push({
+                    key: 'upper',
+                    label: requirementLabel(requirement),
+                    missing: requirement,
+                    test: (password) => (password.match(/[A-Z]/g)?.length ?? 0) >= min_upper,
+                });
+            }
+            if (min_special > 0) {
+                const requirement = requirementPhrase(min_special, words.special);
+                requirementConfigs.push({
+                    key: 'special',
+                    label: requirementLabel(requirement, special_preview ? `[ ${special_preview} ]` : ''),
+                    missing: requirement,
+                    test: (password) => ((special_regex ? (password.match(special_regex)?.length) : 0) ?? 0) >= min_special,
+                });
+            }
+
+            requirementConfigs.forEach((cfg) => {
+                const item = $('<li class="text-danger"></li>').attr('data-requirement', cfg.key);
+                const icon = $('<span class="requirement-icon" aria-hidden="true">•</span>');
+                const label = $('<span class="requirement-text"></span>').text(cfg.label);
+                item.append(icon, label);
+                requirementList.append(item);
+            });
+
+            if (requirementConfigs.length) {
+                helpContainer.append(requirementList);
+                password_input.attr('aria-describedby', 'password-requirements');
+            }
+
+            let passwordFeedback = passwordWrapper.find('.password-feedback');
+            if (!passwordFeedback.length) {
+                passwordFeedback = $('<div class="invalid-feedback password-feedback mt-2"></div>');
+                helpContainer.after(passwordFeedback);
+            }
+
+            const confirmWrapper = password_input_repeat.closest('.mb-3');
+            let confirmFeedback = confirmWrapper.find('.password-confirm-feedback');
+            if (!confirmFeedback.length) {
+                confirmFeedback = $('<div class="invalid-feedback password-confirm-feedback mt-2"></div>');
+                password_input_repeat.after(confirmFeedback);
+            }
+
+            const passwordsMustMatchText = templateStrings.passwordsMustMatch;
+
+            function updatePasswordRequirements(password) {
+                if (!requirementConfigs.length) {
+                    password_input.removeClass('is-invalid');
+                    passwordFeedback.text('');
+                    password_input[0].setCustomValidity('');
+                    return true;
+                }
+                const missing = [];
+                requirementConfigs.forEach((cfg) => {
+                    const item = requirementList.find(`[data-requirement="${cfg.key}"]`);
+                    const icon = item.find('.requirement-icon');
+                    if (cfg.test(password)) {
+                        item.removeClass('text-danger').addClass('text-success');
+                        icon.text('✓');
+                    } else {
+                        item.removeClass('text-success').addClass('text-danger');
+                        icon.text('•');
+                        missing.push(cfg.missing);
+                    }
+                });
+                if (missing.length) {
+                    const summary = formatList(missing);
+                    password_input.addClass('is-invalid');
+                    passwordFeedback.text(formatTemplate(templateStrings.add, { items: summary }));
+                    password_input[0].setCustomValidity(formatTemplate(templateStrings.add, { items: summary }));
+                    return false;
+                }
+                password_input.removeClass('is-invalid');
+                passwordFeedback.text('');
+                password_input[0].setCustomValidity('');
+                return true;
+            }
+
+            function check_password_requirements() {
+                return updatePasswordRequirements(password_input.val());
+            }
+
+            function syncConfirmPassword() {
+                if (!password_input_repeat.val()) {
+                    password_input_repeat.removeClass('is-invalid');
+                    confirmFeedback.text('');
+                    password_input_repeat[0].setCustomValidity('');
+                    return true;
+                }
+                if (password_input.val() !== password_input_repeat.val()) {
+                    password_input_repeat.addClass('is-invalid');
+                    confirmFeedback.text(passwordsMustMatchText);
+                    password_input_repeat[0].setCustomValidity(passwordsMustMatchText);
+                    return false;
+                }
+                password_input_repeat.removeClass('is-invalid');
+                confirmFeedback.text('');
+                password_input_repeat[0].setCustomValidity('');
+                return true;
+            }
+
+            password_input.on('input blur', () => {
+                updatePasswordRequirements(password_input.val());
+                syncConfirmPassword();
+            });
+            password_input_repeat.on('input blur', () => {
+                syncConfirmPassword();
+            });
+
+            updatePasswordRequirements(password_input.val());
+
+            async function digestMessage(message) {
+                const msgUint8 = new TextEncoder().encode(message);
+                const hashBuffer = await crypto.subtle.digest('SHA-512', msgUint8);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+            }
+
+            async function hash_password_inputs(password_inputs_id) {
+                for (const password_input_id of password_inputs_id) {
+                    let password_input = $('#' + password_input_id);
+                    if (password_input.length > 0) {
+                        let text = window.location.hostname + ':' + password_input.val();
+                        let hash = await digestMessage(text);
+                        password_input.val(hash);
+                    }
+                }
+            }
+
+            let hashed = false;
+            $('#judge-register-form').submit((event) => {
+                if (!check_password_requirements() || password_input.val() !== password_input_repeat.val()) {
+                    event.preventDefault();
+                    return;
+                }
+                if (hashed) {
+                    hashed = false;
+                    return;
+                }
+                event.preventDefault();
+                hash_password_inputs(['id_password1', 'id_password2']).then(() => {
+                    hashed = true;
+                    event.target.submit();
+                });
+            });
+        });
+    </script>
+{% endblock %}

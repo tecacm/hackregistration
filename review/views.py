@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import timedelta
 from io import BytesIO
@@ -6,6 +7,8 @@ from zipfile import ZipFile
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
 from django.db import Error, IntegrityError
 from django.db.models import Q, Count, F
@@ -25,7 +28,7 @@ from app.mixins import TabsViewMixin
 from app.utils import is_installed
 from application import forms
 from application.mixins import ApplicationPermissionRequiredMixin
-from application.models import Application, FileField, ApplicationLog, ApplicationTypeConfig, PromotionalCode
+from application.models import Application, FileField, ApplicationLog, ApplicationTypeConfig, PromotionalCode, Edition
 from review.emails import get_invitation_or_waitlist_email, get_rejection_email
 from review.filters import ApplicationTableFilter, ApplicationTableFilterWithPromotion
 from review.forms import CommentForm, DubiousApplicationForm
@@ -36,6 +39,75 @@ from user.models import BlockedUser
 
 
 class ReviewApplicationTabsMixin(TabsViewMixin):
+    def ensure_judge_applications(self):
+        # Keep judge roster in sync so organizers always see them in the review table
+        edition = Edition.objects.order_by('-order').first()
+        if edition is None:
+            return
+
+        defaults = {
+            'start_application_date': timezone.now(),
+            'end_application_date': timezone.now() + timedelta(days=365),
+            'vote': False,
+            'dubious': False,
+            'auto_confirm': True,
+            'compatible_with_others': True,
+            'create_user': False,
+            'hidden': True,
+        }
+
+        judge_type, _ = ApplicationTypeConfig.objects.get_or_create(name='Judge', defaults=defaults)
+        Group.objects.get_or_create(name='Judge')
+
+        User = get_user_model()
+        judge_users = User.objects.filter(groups__name='Judge').distinct()
+        if not judge_users.exists():
+            return
+
+        now = timezone.now()
+        for user in judge_users:
+            application, created = Application.objects.get_or_create(
+                user=user,
+                type=judge_type,
+                edition=edition,
+                defaults={
+                    'status': Application.STATUS_CONFIRMED,
+                    'submission_date': now,
+                    'last_modified': now,
+                    'status_update_date': now,
+                    'form_data': {'judge_type': user.judge_type} if user.judge_type else {},
+                },
+            )
+
+            if created:
+                continue
+
+            changed = False
+            if application.status != Application.STATUS_CONFIRMED:
+                application.status = Application.STATUS_CONFIRMED
+                changed = True
+
+            try:
+                data = json.loads(application.data) if application.data else {}
+            except json.JSONDecodeError:
+                data = {}
+
+            judge_type_value = getattr(user, 'judge_type', '')
+            if judge_type_value:
+                if data.get('judge_type') != judge_type_value:
+                    data['judge_type'] = judge_type_value
+                    application.form_data = data
+                    changed = True
+            elif 'judge_type' in data:
+                del data['judge_type']
+                application.form_data = data
+                changed = True
+
+            if changed:
+                application.last_modified = now
+                application.status_update_date = now
+                application.save()
+
     def get_review_application(self, application_type):
         max_votes_to_app = getattr(settings, 'MAX_VOTES_TO_APP', 50)
         return Application.objects.actual().filter(type__name__iexact=application_type,
@@ -48,6 +120,7 @@ class ReviewApplicationTabsMixin(TabsViewMixin):
             .first()
 
     def get_current_tabs(self, **kwargs):
+        self.ensure_judge_applications()
         tabs = []
         active_type = self.request.GET.get('type', 'Hacker')
         for app_type in ApplicationTypeConfig.objects.all().order_by('pk'):
@@ -187,6 +260,7 @@ class ApplicationList(IsOrganizerMixin, ReviewApplicationTabsMixin, SingleTableM
         return filterset
 
     def get_queryset(self):
+        self.ensure_judge_applications()
         base_qs = Application.objects.actual()
         qs = self.table_class.get_queryset(base_qs)
         # Optional filter: limit to a specific friends group by code if provided

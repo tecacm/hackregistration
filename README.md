@@ -68,6 +68,7 @@ Event ops
 UI/UX
 - Bootstrap 5 forms and layout helpers
 - Light/Dark themes (both available)
+- Dedicated judge onboarding flow with direct access to the scoring dashboard
 
 ---
 
@@ -212,6 +213,7 @@ python manage.py crontab remove
 
 ## 11. Deployment notes
 
+- Always run the latest migrations before rolling out judge tooling. Migration `user.0014_user_judge_type` backfills confirmed `Application` rows for existing judges so they appear in review tables. Execute `python manage.py migrate` during deploys and spot-check the review dashboard afterward to ensure counts and judge types look correct.
 - Prefer a reverse proxy (nginx/traefik) in front of gunicorn.
 - Recommended 5 MB upload limit and friendly 413 redirect:
 
