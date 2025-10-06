@@ -1,6 +1,5 @@
 <p align="center">
-  <img alt="HackAssistant" src="https://avatars2.githubusercontent.com/u/33712329?s=200&v=4" width="160" />
-  <h1 align="center">HackAssistant – Hackathon Registration & Operations Platform</h1>
+  <h1 align="center">Hackathon Registration & Operations Platform</h1>
   <p align="center">
     Modern, extensible and privacy‑aware Django backend for managing hackathon applications, teams, logistics and stats.
   </p>
@@ -30,6 +29,7 @@ Highlights adapted for HackMTY:
 - Age privacy layer (integer age → synthetic birth_date)
 - Mandatory phone number & stricter validations for on‑site logistics
 - Centralized Level of Study synced to profile
+- Judge onboarding requires invite codes, captures judge specialization, and auto-enrols each judge into the review roster so organizers see them immediately.
 - Admissions workflow with Invite, Waitlist and Reject actions (distinct statuses and emails)
 - Friends (teams) with capacity and Devpost project link capture (visible starting on the event day)
 - Event banners and date‑gated disclaimers (e.g., no re‑entry window)
@@ -44,10 +44,12 @@ Accounts & Security
 - Password reuse prevention (history) + composition validators
 - Brute force mitigation with django‑axes (IP cool‑off)
 - Admin honeypot and CSP defaults
+- Judge registration flow enforces invite codes and immediate email verification to keep the roster controlled.
 
 Applications
 - Configurable application types (Hacker, Volunteer, Mentor, Sponsor)
   - Hidden types with token-gated apply links for private programs (e.g., Sponsor). Rotate tokens from admin.
+- Judge application type stays hidden from applicants but is auto-created for every Judge group member, keeping the review roster up-to-date without manual data entry.
 - Extra dynamic fields stored as JSON (`form_data`) + file uploads with overwrite
 - Promotional codes, custom consents, MLH‑style policy capture
 - Invite / Waitlist / Reject organizer actions and tailored emails
@@ -59,6 +61,7 @@ Teams (Friends)
 
 Organizer tooling
 - Review list and actions, stats with filters, exportable tables
+- Judge application tab with "judge type" filter surfaced alongside other application types for fast slicing.
 - Admin panel for teams: list by code, counts, filters, CSV export, deep links
 
 Event ops
