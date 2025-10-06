@@ -1,3 +1,4 @@
 {{ subject }}
 
-Join our Discord: https://hackmty.com/discord
+{% if include_discord %}Join our Discord: https://hackmty.com/discord
+{% endif %}

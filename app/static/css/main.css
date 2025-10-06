@@ -155,3 +155,12 @@ footer {
 .a-none:link, .a-none:visited, .a-none:hover, .a-none:active, .a-none {
     text-decoration: none !important;
 }
+
+.form-feedback-error {
+    color: var(--bs-danger, #dc3545);
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+    display: block;
+    font-weight: 500;
+}
+

@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block subtitle %}{{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column gap-4">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body d-flex flex-column flex-xl-row justify-content-between align-items-start align-items-xl-center gap-4">
+            <div class="d-flex flex-column gap-2">
+                <div class="text-uppercase small fw-semibold text-primary">{% translate "Scoring" %}</div>
+                <h1 class="h3 mb-0">{{ project.name }}</h1>
+                <p class="text-muted mb-0">
+                    {% if project.track %}<strong>{% translate "Track" %}:</strong> {{ project.track }} · {% endif %}
+                    <strong>{% translate "Table" %}:</strong> {{ project.table_location|default:_('TBD') }}
+                </p>
+                <div class="d-flex flex-column flex-sm-row gap-2 mt-3">
+                    <a href="{% url 'judging:dashboard' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>{% translate "Back to dashboard" %}
+                    </a>
+                    <a href="{% url 'judging:launch' %}" class="btn btn-outline-primary">
+                        <i class="bi bi-qr-code-scan me-2"></i>{% translate "Scan another project" %}
+                    </a>
+                </div>
+            </div>
+            <div class="d-flex flex-column gap-2 align-self-stretch align-items-start align-items-xl-end">
+                {% if evaluation %}
+                    <div class="badge bg-primary-subtle text-primary-emphasis px-3 py-2">
+                        <i class="bi bi-clipboard-check me-1"></i>{{ evaluation.get_status_display }} · {{ evaluation.updated_at|date:"H:i" }}
+                    </div>
+                    <div class="fw-semibold text-muted small">
+                        {% translate "Current total" %}: {{ evaluation.total_score }}
+                    </div>
+                {% else %}
+                    <div class="badge bg-secondary-subtle text-secondary-emphasis px-3 py-2">
+                        <i class="bi bi-pencil-square me-1"></i>{% translate "New evaluation" %}
+                    </div>
+                {% endif %}
+                <div class="card border-0 bg-light-subtle mt-3">
+                    <div class="card-body py-2 px-3">
+                        <div class="fw-semibold small text-uppercase text-muted mb-1">{% translate "Checklist" %}</div>
+                        <ul class="list-unstyled small text-muted mb-0 d-flex flex-column gap-1">
+                            <li><i class="bi bi-check-circle-fill text-success me-1"></i>{% translate "Score every rubric row" %}</li>
+                            <li><i class="bi bi-check-circle-fill text-success me-1"></i>{% translate "Leave a note highlighting standout points" %}</li>
+                            <li><i class="bi bi-check-circle-fill text-success me-1"></i>{% translate "Submit before leaving the table" %}</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="alert alert-info d-flex align-items-start gap-2" role="note">
+        <i class="bi bi-info-circle text-info fs-4"></i>
+        <div class="small mb-0">
+            <div class="fw-semibold">{% translate "Offline?" %}</div>
+            <p class="mb-0">{% translate "If the connection drops, keep your notes handy. Saving as draft preserves progress until you regain signal." %}</p>
+        </div>
+    </div>
+
+    <form method="post" class="card border-0 shadow-sm">
+        {% csrf_token %}
+        <div class="card-body d-flex flex-column gap-4">
+            {% for section_data in rubric_sections %}
+                {% with section=section_data.section %}
+                <section class="p-4 border rounded-4 d-flex flex-column gap-3">
+                    <div class="d-flex justify-content-between align-items-start flex-column flex-md-row gap-2">
+                        <div>
+                            <h2 class="h5 mb-1">{{ section.title }}</h2>
+                            <span class="text-muted small">{% translate "Weight" %}: {{ section.weight|floatformat:2 }}</span>
+                        </div>
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis">
+                            {% translate "Criteria" %}: {{ section.criteria|length }}
+                        </span>
+                    </div>
+                    <div class="row g-4">
+                        {% for field_data in section_data.fields %}
+                            {% with criterion=field_data.criterion field=field_data.field %}
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="id_{{ criterion.id }}">{{ field.label }}</label>
+                                <div class="input-group input-group-lg">
+                                    {{ field }}
+                                    <span class="input-group-text">/{{ criterion.max_score }}</span>
+                                </div>
+                                <div class="form-text">{{ criterion.description|default:_('Share what influenced your score for this item.') }}</div>
+                                {% if field.errors %}
+                                    <div class="form-feedback-error" role="alert">{{ field.errors|join:', ' }}</div>
+                                {% endif %}
+                            </div>
+                            {% endwith %}
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endwith %}
+            {% endfor %}
+            <div class="d-flex flex-column gap-2">
+                <label class="form-label fw-semibold" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
+                {{ form.notes }}
+                <div class="form-text">{% translate "Capture highlights, feedback, or concerns—organizers read this during deliberations." %}</div>
+                {% if form.notes.errors %}
+                    <div class="form-feedback-error" role="alert">{{ form.notes.errors|join:', ' }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-footer bg-transparent d-flex justify-content-between flex-column flex-lg-row gap-3">
+            <div class="text-muted small">
+                {% translate "Saving as draft keeps it private. Submitting finalizes your evaluation." %}
+            </div>
+            <div class="d-flex flex-column flex-sm-row gap-2">
+                <button type="submit" name="action" value="draft" class="btn btn-outline-primary">
+                    <i class="bi bi-file-earmark-text me-2"></i>{% translate "Save draft" %}
+                </button>
+                <button type="submit" name="action" value="submit" class="btn btn-primary">
+                    <i class="bi bi-send-check me-2"></i>{% translate "Submit score" %}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+{% load static %}
+{% load i18n %}
+
+{% block subtitle %}{% translate "Judges Guide" %}{% endblock %}
+
+{% block head %}
+  <style>
+    .judges-layout {
+      position: relative;
+      padding: 2rem 0 3rem;
+    }
+    .judges-layout::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(111, 66, 193, 0.32), transparent 60%),
+        radial-gradient(circle at 100% 0%, rgba(32, 201, 151, 0.18), transparent 60%),
+        linear-gradient(185deg, rgba(247, 242, 255, 0.72) 0%, rgba(244, 246, 255, 0.35) 45%, rgba(255, 255, 255, 0.05) 100%);
+      z-index: 0;
+      pointer-events: none;
+    }
+    .judges-layout > * {
+      position: relative;
+      z-index: 1;
+    }
+    .judges-hero {
+      background: linear-gradient(135deg, rgba(111, 66, 193, 0.96), rgba(95, 69, 230, 0.92), rgba(32, 201, 151, 0.85));
+      color: #fff;
+      border: none;
+      box-shadow: 0 22px 48px rgba(111, 66, 193, 0.28);
+    }
+    .judges-hero h1 {
+      font-size: clamp(2.5rem, 3vw + 1rem, 3.75rem);
+      margin-bottom: 0.75rem;
+    }
+    .judges-nav {
+      position: sticky;
+      top: 6.5rem;
+      background: #ffffff;
+      border: 1px solid rgba(111, 66, 193, 0.22);
+      box-shadow: 0 16px 32px rgba(111, 66, 193, 0.12);
+      border-radius: 1.25rem;
+    }
+    .judges-nav .nav-link {
+      color: #5b3abf;
+      font-weight: 500;
+    }
+    .judges-nav .nav-link:hover,
+    .judges-nav .nav-link:focus {
+      color: #7f4bcd;
+      text-decoration: underline;
+    }
+    .judges-section {
+      scroll-margin-top: 7rem;
+    }
+    .score-card {
+      background: linear-gradient(180deg, #ffffff 0%, #f4edff 100%);
+      border: 1px solid rgba(111, 66, 193, 0.18);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      box-shadow: 0 10px 26px rgba(111, 66, 193, 0.12);
+    }
+    .score-card strong {
+      font-size: 1.125rem;
+      color: #5b3abf;
+    }
+    .criteria-card {
+      border-radius: 16px;
+      border: 1px solid rgba(111, 66, 193, 0.14);
+      background: linear-gradient(180deg, #ffffff 0%, rgba(247, 242, 255, 0.92) 100%);
+      transition: transform .2s ease, box-shadow .2s ease;
+      box-shadow: 0 12px 28px rgba(111, 66, 193, 0.12);
+    }
+    .criteria-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 18px 34px rgba(111, 66, 193, 0.15);
+    }
+    .timeline-item {
+      border-left: 3px solid rgba(111, 66, 193, 0.7);
+      padding-left: 1.25rem;
+      margin-left: 0.25rem;
+      position: relative;
+    }
+    .timeline-item::before {
+      content: "";
+      position: absolute;
+      left: -10px;
+      top: 0.35rem;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #7f4bcd;
+      box-shadow: 0 0 0 4px rgba(127, 75, 205, 0.24);
+    }
+    .list-group-item {
+      background: #ffffff;
+    }
+    .judges-pane {
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(111, 66, 193, 0.14);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    }
+    .judges-glass {
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(111, 66, 193, 0.18);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      box-shadow: 0 30px 60px rgba(15, 23, 42, 0.16);
+    }
+    .timeline-item .badge {
+      background: linear-gradient(120deg, #7f4bcd, #5b3abf);
+      color: #fff;
+    }
+    .judges-hero .card {
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      color: #fff;
+      box-shadow: none;
+    }
+    .judges-hero .card-title {
+      color: #fff;
+    }
+    @media (max-width: 991px) {
+      .judges-nav {
+        position: static;
+        margin-bottom: 2rem;
+      }
+    }
+  </style>
+{% endblock %}
+
+{% block container %}
+  <div class="judges-layout">
+    <div class="container-xl">
+    <div class="row g-4">
+      <div class="col-12">
+        <section class="judges-hero rounded-4 p-5 shadow-sm judges-section" id="overview">
+          <span class="badge text-bg-light text-uppercase fw-semibold mb-3">{{ overview.tagline }}</span>
+          <h1 class="fw-bold">{{ app_hack }} · {{ overview.mission }}</h1>
+          {% if hack_start_date and hack_end_date %}
+            <div class="text-white-50 mb-2">
+              {{ hack_start_date|date:"j M" }} – {{ hack_end_date|date:"j M Y" }}{% if hack_location %} · {{ hack_location }}{% endif %}
+            </div>
+          {% endif %}
+          <p class="lead mb-4">{% translate "Students passionate about technology building solutions in 36 hours." %}</p>
+          <div class="row g-4">
+            <div class="col-lg-4">
+              <div class="card bg-light text-dark border-0 h-100 shadow-sm">
+                <div class="card-body">
+                  <h5 class="card-title text-primary">{% translate "Learn" %}</h5>
+                  <p class="mb-0">{% translate "Teams explore emerging technologies and exchange knowledge with mentors." %}</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="card bg-light text-dark border-0 h-100 shadow-sm">
+                <div class="card-body">
+                  <h5 class="card-title text-primary">{% translate "Build" %}</h5>
+                  <p class="mb-0">{% translate "Participants experiment, prototype, and deliver a functional MVP by the end of the event." %}</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="card bg-light text-dark border-0 h-100 shadow-sm">
+                <div class="card-body">
+                  <h5 class="card-title text-primary">{% translate "Collaborate" %}</h5>
+                  <p class="mb-0">{% translate "Multidisciplinary teams craft unique solutions and memorable experiences." %}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="col-lg-3">
+        <nav class="judges-nav p-3">
+          <h6 class="text-uppercase text-muted fw-semibold mb-3">{% translate "Contents" %}</h6>
+          <ul class="nav flex-column gap-2">
+            <li><a class="nav-link px-0" href="#overview">{% translate "Overview" %}</a></li>
+            <li><a class="nav-link px-0" href="#role">{% translate "Judge role" %}</a></li>
+            <li><a class="nav-link px-0" href="#criteria">{% translate "Criteria & rubrics" %}</a></li>
+            <li><a class="nav-link px-0" href="#reminders">{% translate "Key reminders" %}</a></li>
+            <li><a class="nav-link px-0" href="#red-flags">{% translate "Red Flags" %}</a></li>
+            <li><a class="nav-link px-0" href="#score">{% translate "Scoring scale" %}</a></li>
+            <li><a class="nav-link px-0" href="#schedule">{% translate "Timing & logistics" %}</a></li>
+            <li><a class="nav-link px-0" href="#resources">{% translate "Resources" %}</a></li>
+          </ul>
+        </nav>
+      </div>
+      <div class="col-lg-9">
+        <div class="judges-glass rounded-4 p-4 p-lg-5">
+        <section class="judges-section mb-5" id="role">
+          <h2 class="fw-bold mb-3">{{ role.headline }}</h2>
+          <p class="lead">{% translate "Your mission is to spotlight the projects that can transform technology and society." %}</p>
+          <div class="row g-4">
+            <div class="col-md-6">
+              <div class="rounded-4 p-4 h-100 judges-pane">
+                <h5 class="text-primary fw-semibold">{% translate "Key responsibilities" %}</h5>
+                <ul class="mb-0">
+                  {% for item in role.responsibilities %}
+                    <li>{{ item }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="rounded-4 p-4 h-100 judges-pane">
+                <h5 class="text-primary fw-semibold">{% translate "Primary criteria" %}</h5>
+                <ul class="mb-0">
+                  {% for item in role.criteria %}
+                    <li>{{ item }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="judges-section mb-5" id="criteria">
+          <h2 class="fw-bold mb-4">{% translate "Evaluation rubrics" %}</h2>
+          <div class="row g-4">
+            {% for block in rubrics %}
+              <div class="col-md-6">
+                <div class="criteria-card p-4 h-100">
+                  <h5 class="fw-semibold text-primary mb-3">{{ block.category }}</h5>
+                  <ul class="mb-0">
+                    {% for criteria in block.criteria %}
+                      <li>{{ criteria }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="judges-section mb-5" id="reminders">
+          <h2 class="fw-bold mb-3">{{ reminders.title }}</h2>
+          <div class="row g-4">
+            <div class="col-md-6">
+              <div class="rounded-4 p-4 h-100 judges-pane">
+                <h5 class="text-primary fw-semibold">{% translate "Guidelines" %}</h5>
+                <ul class="mb-0">
+                  {% for item in reminders.notes %}
+                    <li>{{ item }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="rounded-4 p-4 h-100 judges-pane">
+                <h5 class="text-primary fw-semibold">{% translate "Interaction tips" %}</h5>
+                <ul class="mb-0">
+                  {% for item in reminders.interaction_tips %}
+                    <li>{{ item }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="judges-section mb-5" id="red-flags">
+          <h2 class="fw-bold mb-3">{% translate "Red Flags" %}</h2>
+          <ul class="list-group list-group-flush">
+            {% for item in red_flags %}
+              <li class="list-group-item border-bottom border-0">{{ item }}</li>
+            {% endfor %}
+          </ul>
+          <h3 class="mt-4 fw-semibold text-primary">{% translate "What not to do" %}</h3>
+          <ul>
+            {% for item in donts %}
+              <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        <section class="judges-section mb-5" id="score">
+          <h2 class="fw-bold mb-3">{% translate "Scoring scale" %}</h2>
+          <div class="row g-3">
+            {% for row in score_scale %}
+              <div class="col-6 col-md-4 col-lg-3">
+                <div class="score-card text-center h-100">
+                  <strong>{{ row.score }}</strong>
+                  <div class="text-muted small">{{ row.label }}</div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="judges-section mb-5" id="schedule">
+          <h2 class="fw-bold mb-3">{{ schedule.title }}</h2>
+          <div class="timeline-item mb-4">
+            {% for block in schedule.blocks %}
+              <div class="mb-3">
+                <h5 class="fw-semibold mb-1">{{ block.label }}</h5>
+                <span class="badge text-bg-primary">{{ block.duration }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          <ul>
+            {% for item in schedule.reminders %}
+              <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        <section class="judges-section mb-0" id="resources">
+          <h2 class="fw-bold mb-3">{% translate "Resources and platform" %}</h2>
+          <div class="rounded-4 p-4 judges-pane">
+            <p class="mb-1">{% translate "Open the judging portal to record your evaluations:" %}</p>
+            <a class="btn btn-primary" href="{{ judging_portal_url }}" target="_blank" rel="noopener">
+              {% translate "Launch judging portal" %}
+            </a>
+            <p class="mt-3 mb-0 text-muted small">
+              {% translate "Need help? Find a staff member nearby or send a message to" %}
+              <a href="mailto:{{ app_contact }}">{{ app_contact }}</a>.
+            </p>
+          </div>
+        </section>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>
+{% endblock %}

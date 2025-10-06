@@ -33,9 +33,10 @@ urlpatterns = [
     path('auth/', include('user.urls')),
     path('application/', include('application.urls')),
     path('review/', include('review.urls')),
-    path('event/', include('event.urls')),
+    path('event/', include(('event.urls', 'event'), namespace='event')),
     path('stats/', include('stats.urls')),
     path('tables/', include('tables.urls')),
+    path('judging/', include('judging.urls')),
     path('accounts/', include('allauth.urls')),
 ]
 

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.contrib import messages
 from django.db import Error, transaction
@@ -15,6 +17,7 @@ from application.views import ParticipantTabsMixin
 from friends.filters import FriendsInviteTableFilter
 from friends.forms import FriendsForm, DevpostForm, TrackPreferenceForm
 from friends.models import FriendsCode
+from judging.models import JudgingEvaluation, JudgingProject
 from friends.tables import FriendInviteTable
 from review.emails import get_invitation_or_waitlist_email
 from review.views import ReviewApplicationTabsMixin, ApplicationListInvite
@@ -59,8 +62,76 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
         try:
             edition_obj = Edition.objects.get(pk=Edition.get_default_edition())
             context['track_selection_open'] = getattr(edition_obj, 'track_selection_open', True)
+            context['judging_scores'] = self.build_judging_scores_context(edition_obj, friends_code)
         except Exception:
             context['track_selection_open'] = True
+            context['judging_scores'] = {'enabled': False, 'available': False}
+        return context
+
+    def build_judging_scores_context(self, edition, friends_code):
+        context = {
+            'enabled': getattr(edition, 'judging_scores_public', False),
+            'available': False,
+            'average': None,
+            'count': 0,
+            'evaluations': [],
+            'pending_reason': None,
+            'project': None,
+        }
+        if not context['enabled']:
+            context['pending_reason'] = 'disabled'
+            return context
+        if friends_code is None:
+            context['pending_reason'] = 'no_team'
+            return context
+
+        project = (
+            JudgingProject.objects.select_related('edition')
+            .prefetch_related('evaluations__judge')
+            .filter(edition=edition, friends_code__code=friends_code.code)
+            .first()
+        )
+        if project is None:
+            context['pending_reason'] = 'project_missing'
+            return context
+
+        released_evaluations = [
+            evaluation for evaluation in project.evaluations.all()
+            if evaluation.status == JudgingEvaluation.STATUS_RELEASED
+        ]
+        if not released_evaluations:
+            context['pending_reason'] = 'no_scores'
+            return context
+
+        total_score = sum((evaluation.total_score for evaluation in released_evaluations), Decimal('0'))
+        average = (total_score / Decimal(len(released_evaluations))).quantize(Decimal('0.01'))
+        evaluation_details = []
+        for evaluation in released_evaluations:
+            judge = evaluation.judge
+            display_name = ''
+            if judge:
+                display_name = (
+                    getattr(judge, 'get_short_name', lambda: '')()
+                    or judge.get_full_name()
+                    or judge.username
+                )
+            if not display_name:
+                display_name = _('Judge')
+            evaluation_details.append({
+                'judge': display_name,
+                'score': evaluation.total_score,
+                'submitted_at': evaluation.submitted_at,
+                'notes': evaluation.notes,
+            })
+
+        context.update({
+            'available': True,
+            'average': average,
+            'count': len(released_evaluations),
+            'evaluations': evaluation_details,
+            'project': project,
+            'pending_reason': None,
+        })
         return context
 
     def post(self, request, **kwargs):

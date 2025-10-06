@@ -31,7 +31,7 @@ class AnnouncementList(PermissionRequiredMixin, SingleTableMixin, FilterView):
         announcement.status = announcement.STATUS_SENT
         announcement.save()
         announcement.send()
-        return redirect(reverse('announcement_list'))
+        return redirect(reverse('event:announcement_list'))
 
 
 class AnnouncementFormView(PermissionRequiredMixin, TemplateView):
@@ -64,6 +64,6 @@ class AnnouncementFormView(PermissionRequiredMixin, TemplateView):
         form = AnnouncementForm(request.POST, **form_kwargs)
         if form.is_valid():
             form.save()
-            return redirect(reverse('announcement_list'))
+            return redirect(reverse('event:announcement_list'))
         context.update({'form': form})
         return self.render_to_response(context)

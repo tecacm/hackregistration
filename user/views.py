@@ -41,10 +41,22 @@ class AuthTemplateViews(TabsViewMixin, TemplateView):
         return [('Log in', reverse('login')), ('Register', reverse('register'))]
 
     def redirect_successful(self):
-        next_ = self.request.GET.get('next', reverse('home'))
-        if next_[0] != '/':
-            next_ = reverse('home')
-        return redirect(next_)
+        next_url = self.request.GET.get('next')
+        if next_url:
+            if next_url.startswith('/'):
+                return redirect(next_url)
+            return redirect(reverse('home'))
+
+        user = getattr(self.request, 'user', None)
+        if user is not None and getattr(user, 'is_authenticated', False):
+            try:
+                if user.groups.filter(name='Judge').exists():
+                    return redirect(reverse('judges_guide'))
+            except Exception:
+                # Defensive: if group lookup fails, fall back to the home page
+                pass
+
+        return redirect(reverse('home'))
 
     def get(self, request, *args, **kwargs):
         if request.user.is_authenticated:

@@ -2,6 +2,7 @@ import string
 from random import choice
 
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import transaction
@@ -15,6 +16,7 @@ from django.utils.translation import gettext_lazy as _
 
 from application.mixins import AnyApplicationPermissionRequiredMixin
 from application.models import Application, ApplicationLog, Edition
+from django.conf import settings
 from event.filters import CheckinTableFilter
 from event.tables import CheckinTable
 
@@ -87,9 +89,9 @@ class CheckinUser(TemplateView):
         application_log.save()
 
     def redirect_successful(self):
-        next_ = self.request.GET.get('next', reverse('checkin_list'))
+        next_ = self.request.GET.get('next', reverse('event:checkin_list'))
         if next_[0] != '/':
-            next_ = reverse('checkin_list')
+            next_ = reverse('event:checkin_list')
         return redirect(next_)
 
     def post(self, request, *args, **kwargs):
@@ -128,4 +130,129 @@ class CheckinAdminList(CheckinList):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update({'admin': True})
+        return context
+
+
+class JudgesGuideView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+    template_name = 'judges/guide.html'
+    login_url = 'account_login'
+
+    def test_func(self):
+        user = self.request.user
+        if not getattr(user, 'is_authenticated', False):
+            return False
+        if user.is_superuser:
+            return True
+        try:
+            return user.groups.filter(name__in=['Judge', 'Organizer']).exists()
+        except Exception:
+            return False
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            'overview': {
+                'tagline': _('Expo Judges Training'),
+                'mission': _('Expo Judging Hub'),
+                'about': [
+                    _('HackMTY is the largest student hackathon in Latin America.'),
+                    _('We aim to learn, collaborate, build, and have fun while solving real-world challenges.'),
+                    _('Teams generate, develop, and ship products or services in under 36 hours.'),
+                ],
+            },
+            'role': {
+                'headline': _('What does an expo judge do?'),
+                'responsibilities': [
+                    _('Evaluate 8–10 teams that submitted their project to the official platform.'),
+                    _('Score every team consistently using the official rubric.'),
+                    _('Select the top 10 finalists that advance to the final panel.'),
+                ],
+                'criteria': [_('Innovation'), _('Technical Challenge'), _('User Experience'), _('Impact'), _('Presentation')],
+            },
+            'reminders': {
+                'title': _('Key reminders'),
+                'notes': [
+                    _('Hardware and software projects require different expertise—assess each team within its context.'),
+                    _('Capture quick notes on anything unclear so you can follow up with mentors or other judges.'),
+                    _('Skip questions about school or hometown; keep the conversation focused on the project.'),
+                    _('If you know someone on the team, let staff know so we can reassign you.'),
+                    _('Balance technical depth and polish—both take time and should influence the score.'),
+                ],
+                'interaction_tips': [
+                    _('Ask open questions: What did you learn? Which technologies did you use? What was the hardest challenge and how did you solve it?'),
+                    _('Dig into how the team divided the work, managed time, and leveraged pre-built components.'),
+                    _('If something is unclear, ask for a short demo or clarification and take notes.'),
+                    _('Celebrate the team’s effort—everyone has poured 36+ hours into their solution.'),
+                ],
+            },
+            'red_flags': [
+                _('Improper use of licenses, copyrights, or third-party assets.'),
+                _('Obscene, disrespectful, or code-of-conduct-breaking content.'),
+                _('A level of polish that seems impossible in 36 hours without clear justification—ask probing questions.'),
+            ],
+            'donts': [
+                _('Do not assign a score if you do not understand the project—ask for support instead.'),
+                _('Do not evaluate teams where you have a conflict of interest.'),
+                _('Do not discriminate based on background, gender, school, or any personal attribute.'),
+            ],
+            'score_scale': [
+                {'score': 6, 'label': _('Outstanding')},
+                {'score': 5, 'label': _('Excellent')},
+                {'score': 4, 'label': _('Very good')},
+                {'score': 3, 'label': _('Good')},
+                {'score': 2, 'label': _('Fair')},
+                {'score': 1, 'label': _('Needs improvement')},
+            ],
+            'rubrics': [
+                {
+                    'category': _('Innovation'),
+                    'criteria': [
+                        _('Originality of the solution.'),
+                        _('Intersection of multiple disciplines or uncommon technologies.'),
+                    ],
+                },
+                {
+                    'category': _('Technical Challenge'),
+                    'criteria': [
+                        _('Integration quality of the chosen technologies.'),
+                        _('Overall technical complexity tackled by the team.'),
+                        _('Functional progress of the prototype during the hackathon.'),
+                    ],
+                },
+                {
+                    'category': _('User Experience'),
+                    'criteria': [
+                        _('Visual design and ease of use.'),
+                        _('Clarity of the target user, journey, or market case.'),
+                    ],
+                },
+                {
+                    'category': _('Impact'),
+                    'criteria': [
+                        _('Inclusive, social, or positive impact potential.'),
+                        _('Sustainable business or monetization strategy.'),
+                    ],
+                },
+                {
+                    'category': _('Presentation'),
+                    'criteria': [
+                        _('Storytelling, branding, and narrative flow.'),
+                        _('Team collaboration and multidisciplinary balance.'),
+                    ],
+                },
+            ],
+            'schedule': {
+                'title': _('Judging schedule'),
+                'blocks': [
+                    {'label': _('Team pitch'), 'duration': _('3 minutes')},
+                    {'label': _('Judge questions and scoring'), 'duration': _('2 minutes')},
+                ],
+                'reminders': [
+                    _('Give every team the same amount of time and stay on schedule.'),
+                    _('Only one judging group per team at a time—avoid crowding projects.'),
+                    _('Staff members are nearby to help with timing, logistics, or any issue.'),
+                ],
+            },
+            'judging_portal_url': getattr(settings, 'JUDGING_PORTAL_URL', '#'),
+        })
         return context

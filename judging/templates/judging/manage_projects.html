@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block subtitle %}{% translate "Manage judging projects" %}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column gap-4">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body d-flex flex-column flex-xl-row justify-content-between align-items-start align-items-xl-center gap-4">
+            <div class="d-flex flex-column gap-2">
+                <div class="text-uppercase small fw-semibold text-primary">{% translate "Judging" %}</div>
+                <h1 class="h3 mb-0">{% translate "Judging projects" %}</h1>
+                <p class="text-muted mb-0">{% translate "Keep every table mapped to a project so judges can find teams quickly." %}</p>
+                <div class="alert alert-primary d-flex align-items-start gap-2 mb-0 mt-3" role="note">
+                    <i class="bi bi-lightbulb text-primary fs-5"></i>
+                    <div class="small mb-0">
+                        <div class="fw-semibold">{% translate "Tip" %}</div>
+                        <p class="mb-0">{% translate "QR slugs power badges and manual lookups—double check they match the printed labels." %}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex flex-column gap-2 align-self-stretch align-items-start align-items-xl-end">
+                <a href="{% url 'judging:project_create' %}" class="btn btn-primary btn-lg">
+                    <i class="bi bi-plus-circle me-2"></i>{% translate "Add project" %}
+                </a>
+                <div class="badge bg-secondary-subtle text-secondary-emphasis px-3 py-2">
+                    {{ projects|length }} {% translate "projects" %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-transparent d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
+            <span class="fw-semibold">{% translate "Project roster" %}</span>
+            <span class="text-muted small">{% translate "Use friends codes to cross-reference expo check-in data." %}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col">{% translate "Project" %}</th>
+                        <th scope="col" class="d-none d-md-table-cell">{% translate "Track" %}</th>
+                        <th scope="col" class="d-none d-lg-table-cell">{% translate "Friends code" %}</th>
+                        <th scope="col">{% translate "QR slug" %}</th>
+                        <th scope="col" class="text-center">{% translate "Status" %}</th>
+                        <th scope="col">{% translate "Judged by" %}</th>
+                        <th scope="col" class="text-end">{% translate "Actions" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for project in projects %}
+                        <tr>
+                            <td class="fw-semibold">{{ project.name }}</td>
+                            <td class="text-muted d-none d-md-table-cell">{{ project.track|default:_('TBD') }}</td>
+                            <td class="text-muted d-none d-lg-table-cell">{{ project.friends_code.code|default:'—' }}</td>
+                            <td><code>{{ project.qr_slug }}</code></td>
+                            <td class="text-center">
+                                {% if project.is_active %}
+                                    <span class="badge bg-success-subtle text-success-emphasis">{% translate "Active" %}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary-emphasis">{% translate "Archived" %}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-muted">
+                                {% with evaluations=project.evaluations.all %}
+                                    {% if evaluations %}
+                                        <div class="d-flex flex-wrap gap-2">
+                                            {% for evaluation in evaluations %}
+                                                <span class="badge bg-light text-dark border">
+                                                    {% with judge=evaluation.judge %}
+                                                        {% firstof judge.get_short_name judge.get_full_name judge.username %}
+                                                    {% endwith %}
+                                                    {% if evaluation.status != 'released' %}
+                                                        <span class="text-muted"> · {{ evaluation.get_status_display }}</span>
+                                                    {% endif %}
+                                                </span>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                {% endwith %}
+                            </td>
+                            <td class="text-end">
+                                <div class="d-inline-flex gap-2">
+                                    <a href="{% url 'judging:project_edit' project.pk %}" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-pencil-square me-1"></i>{% translate "Edit" %}
+                                    </a>
+                                    <form method="post" action="{% url 'judging:project_delete' project.pk %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('{% blocktrans with project_name=project.name %}Delete {{ project_name }}? This cannot be undone.{% endblocktrans %}')">
+                                            <i class="bi bi-trash me-1"></i>{% translate "Delete" %}
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted">{% translate "No projects yet." %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

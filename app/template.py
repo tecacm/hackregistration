@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from app.utils import get_theme, is_installed
@@ -33,9 +33,15 @@ def get_main_nav(request):
         return nav
     try:
         if request.user.is_staff:
-            nav.append(('Admin', reverse('admin:index')))
+            try:
+                nav.append(('Admin', reverse('admin:index')))
+            except NoReverseMatch:
+                pass
         if request.user.is_organizer():
-            nav.extend([('Review', reverse('application_review'))])
+            try:
+                nav.extend([('Review', reverse('application_review'))])
+            except NoReverseMatch:
+                pass
             nav = add_file_nav(nav, request)
         else:
             if getattr(settings, 'HACKATHON_LANDING', None) is not None:
@@ -47,11 +53,64 @@ def get_main_nav(request):
         if getattr(settings, 'HACKATHON_LANDING', None) is not None:
             nav.append(('Landing page', getattr(settings, 'HACKATHON_LANDING')))
     if hasattr(request, 'user') and request.user.has_module_perms('event'):
-        nav.append(('Checkin', reverse('checkin_list')))
+        try:
+            nav.append(('Checkin', reverse('event:checkin_list')))
+        except NoReverseMatch:
+            pass
         if is_installed('event.messages') and request.user.has_perm('event_messages.view_announcement'):
-            nav.append(('Announcements', reverse('announcement_list')))
+            try:
+                nav.append(('Announcements', reverse('event:announcement_list')))
+            except NoReverseMatch:
+                pass
         if is_installed('event.meals') and request.user.has_perm('meals.can_checkin_meals'):
-            nav.append(('Meals', reverse('meals_list')))
+            try:
+                nav.append(('Meals', reverse('event:meals_list')))
+            except NoReverseMatch:
+                pass
+    user = getattr(request, 'user', None)
+    if user and getattr(user, 'is_authenticated', False):
+        try:
+            judge_group = user.groups.filter(name__in=['Judge', 'Organizer']).exists()
+        except Exception:
+            judge_group = False
+        is_judge = user.is_staff or judge_group
+        try:
+            judge_admin = user.is_staff or user.groups.filter(name='Organizer').exists()
+        except Exception:
+            judge_admin = user.is_staff
+
+        if is_judge:
+            judging_menu = []
+            try:
+                judging_menu.append(('Judging dashboard', reverse('judging:dashboard')))
+            except NoReverseMatch:
+                pass
+            try:
+                judging_menu.append(('Scoring portal', reverse('judging:launch')))
+            except NoReverseMatch:
+                pass
+            try:
+                judging_menu.append(('Judges guide', reverse('event:judges_guide')))
+            except NoReverseMatch:
+                pass
+
+            if judge_admin:
+                judging_menu.append(('divider', 'divider'))
+                admin_links = []
+                for label, url_name in [
+                    ('Manage projects', 'judging:manage_projects'),
+                    ('Release window', 'judging:release_window'),
+                    ('Export CSV', 'judging:export'),
+                ]:
+                    try:
+                        admin_links.append((label, reverse(url_name)))
+                    except NoReverseMatch:
+                        continue
+                judging_menu.extend(admin_links)
+
+            if judging_menu:
+                nav.append(('Judging', judging_menu))
+
     if hasattr(request, 'user') and request.user.is_organizer():
         if request.user.has_module_perms('tables'):
             nav.extend([('Tables', reverse('tables_home'))])

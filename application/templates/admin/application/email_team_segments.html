@@ -20,8 +20,31 @@
       {{ form.max_team_size }}
     </div>
     <div class="form-row">
+      <label>{{ form.min_team_size.label }}:</label>
+      {{ form.min_team_size }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.exact_team_size.label }}:</label>
+      {{ form.exact_team_size }}
+    </div>
+    <div class="form-row">
       <label>{{ form.include_no_team.label }}:</label>
       {{ form.include_no_team }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.include_discord.label }}:</label>
+      {{ form.include_discord }}
+      {% if form.include_discord.help_text %}<p class="help">{{ form.include_discord.help_text }}</p>{% endif %}
+    </div>
+    <div class="form-row">
+      <label>{{ form.only_full_missing_confirmed.label }}:</label>
+      {{ form.only_full_missing_confirmed }}
+      {% if form.only_full_missing_confirmed.help_text %}<p class="help">{{ form.only_full_missing_confirmed.help_text }}</p>{% endif %}
+    </div>
+    <div class="form-row">
+      <label>{{ form.statuses.label }}:</label>
+      {{ form.statuses }}
+      {% if form.statuses.help_text %}<p class="help">{{ form.statuses.help_text }}</p>{% endif %}
     </div>
     <div class="form-row">
       <label>{{ form.subject.label }}:</label>

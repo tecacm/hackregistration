@@ -15,6 +15,7 @@ class ApplicationConfig(AppConfig):
 
         ApplicationTypeConfig = self.get_model('ApplicationTypeConfig')
         Group.objects.get_or_create(name='Organizer')
+        Group.objects.get_or_create(name='Judge')
 
         for name, obj in inspect.getmembers(sys.modules['application.forms']):
             if inspect.isclass(obj) and issubclass(obj, ApplicationForm) and obj != ApplicationForm:

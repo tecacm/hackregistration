@@ -4,7 +4,7 @@
 {% block content %}
     <div class="row justify-content-between mb-3">
         <div class="col-12 col-lg-2 d-grid d-md-block">
-            <a href="{% url 'meals_list' %}" class="btn btn-secondary col-12"><i class="bi bi-caret-left-fill"></i> {% trans 'Back' %}</a>
+            <a href="{% url 'event:meals_list' %}" class="btn btn-secondary col-12"><i class="bi bi-caret-left-fill"></i> {% trans 'Back' %}</a>
         </div>
     </div>
     <h1 style="text-align: center">{% if meal %}{% translate 'Editing meal:' %} {{ meal.name }}{% else %}{% translate 'New meal' %}{% endif %}</h1>

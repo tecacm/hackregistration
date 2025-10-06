@@ -80,10 +80,15 @@ This utilities will be divided in generic utilities and app specific utilities.
 #### Application
 
 - **[Application Forms](utility/app_specific/application_form.md)**: Generic class to create types of applications (Hacker, Mentor, etc.) that integrates automatically the forms with the Application Model.
+- **[Application email segments](utility/app_specific/application_email_segments.md)**: Guide for the admin action that queues broadcast emails to small or unteamed applicants.
 
 #### Event.Messages
  
 - **[MessageServiceManager](utility/app_specific/messages.md)**: Explanation of how this services work and how to use it to send quick messages to the participants.
+
+#### Judging
+
+- **[Judging rubric import](utility/app_specific/judging_rubric_import.md)**: Steps for turning a spreadsheet or DataFrame into a rubric JSON and importing it with the management command.
 
 ### Stats
 

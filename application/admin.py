@@ -1,10 +1,11 @@
 from django import forms
+from django.conf import settings
 import time
 from django.contrib import admin
 from django.template.response import TemplateResponse
 from django.utils.http import urlencode
 from django.utils.translation import gettext_lazy as _
-from django.db.models import Count, Q
+from django.db.models import Count, Q, F
 
 from application import models
 from app.emails import Email, EmailList
@@ -19,7 +20,40 @@ class ApplicationAdmin(admin.ModelAdmin):
     class SegmentEmailForm(forms.Form):
         application_type = forms.CharField(initial='Hacker', label=_('Application type'))
         max_team_size = forms.IntegerField(min_value=1, initial=3, label=_('Max team size (<=)'))
+        min_team_size = forms.IntegerField(min_value=1, initial=1, label=_('Min team size (>=)'))
+        exact_team_size = forms.BooleanField(required=False, initial=False, label=_('Only exact team size'))
         include_no_team = forms.BooleanField(required=False, initial=True, label=_('Include no-team applicants'))
+        only_full_missing_confirmed = forms.BooleanField(
+            required=False,
+            initial=False,
+            label=_('Only teams full but missing confirmed'),
+            help_text=_('Requires FRIENDS_MAX_CAPACITY; selects teams at capacity where not all members are Confirmed/Attended.')
+        )
+        include_discord = forms.BooleanField(
+            required=False,
+            initial=True,
+            label=_('Include Discord invite'),
+            help_text=_('Append the “Join our Discord” button and link to the email body.')
+        )
+        statuses = forms.MultipleChoiceField(
+            required=True,
+            label=_('Application statuses to include'),
+            choices=[
+                (models.Application.STATUS_PENDING, _('Under review')),
+                (models.Application.STATUS_DUBIOUS, _('Dubious')),
+                (models.Application.STATUS_NEEDS_CHANGE, _('Needs change')),
+                (models.Application.STATUS_INVITED, _('Invited')),
+                (models.Application.STATUS_LAST_REMINDER, _('Last reminder')),
+                (models.Application.STATUS_CONFIRMED, _('Confirmed')),
+                (models.Application.STATUS_ATTENDED, _('Attended')),
+            ],
+            initial=[
+                models.Application.STATUS_PENDING,
+                models.Application.STATUS_DUBIOUS,
+                models.Application.STATUS_NEEDS_CHANGE,
+            ],
+            help_text=_('Pick the statuses to target (e.g., Invited, Confirmed).')
+        )
         subject = forms.CharField(max_length=200, label=_('Email subject'))
         message = forms.CharField(widget=forms.Textarea(attrs={'rows': 8}), label=_('Email message'))
         dry_run = forms.BooleanField(required=False, initial=False, help_text=_('Preview only; do not send'))
@@ -40,30 +74,58 @@ class ApplicationAdmin(admin.ModelAdmin):
         initial = {
             'application_type': 'Hacker',
             'max_team_size': 3,
+            'min_team_size': 1,
+            'exact_team_size': False,
             'include_no_team': True,
+            'only_full_missing_confirmed': False,
         }
         if request.method == 'POST' and (request.POST.get('preview') or request.POST.get('send')):
             form = self.SegmentEmailForm(request.POST)
             if form.is_valid():
                 app_type = form.cleaned_data['application_type']
                 max_size = form.cleaned_data['max_team_size']
+                min_size = form.cleaned_data['min_team_size']
+                exact_size = form.cleaned_data['exact_team_size']
                 include_no_team = form.cleaned_data['include_no_team']
+                only_full_missing_conf = form.cleaned_data['only_full_missing_confirmed']
+                include_discord = form.cleaned_data['include_discord']
                 subject = form.cleaned_data['subject']
                 message = form.cleaned_data['message']
                 # Not used for queue creation but kept for UI clarity
                 _dry_run = form.cleaned_data['dry_run']
 
-                # Allowed statuses: Under review (P), Dubious (D), Needs change (NC)
-                allowed_statuses = [
-                    models.Application.STATUS_PENDING,
-                    models.Application.STATUS_DUBIOUS,
-                    models.Application.STATUS_NEEDS_CHANGE,
-                ]
+                # Allowed statuses come from the form selection
+                allowed_statuses = form.cleaned_data['statuses']
 
-                # Compute codes for teams with <= max_size considering current edition membership
+                # Compute team code stats constrained to current edition
                 codes_qs = FriendsCode.objects.filter(user__application__edition=edition)
-                small_codes = codes_qs.values('code').annotate(cnt=Count('id')).filter(cnt__lte=max_size)
-                small_codes_list = list(small_codes.values_list('code', flat=True))
+                stats = codes_qs.values('code').annotate(
+                    members=Count('user_id', distinct=True),
+                    confirmed_members=Count(
+                        'user_id',
+                        filter=Q(
+                            user__application__edition=edition,
+                            user__application__status__in=[
+                                models.Application.STATUS_CONFIRMED,
+                                models.Application.STATUS_ATTENDED,
+                            ]
+                        ),
+                        distinct=True,
+                    ),
+                )
+
+                # Apply size constraints
+                if exact_size:
+                    stats = stats.filter(members=max_size)
+                else:
+                    stats = stats.filter(members__lte=max_size, members__gte=min_size)
+
+                # Optionally restrict to teams at capacity but not fully confirmed
+                friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
+                if only_full_missing_conf and isinstance(friends_max_capacity, int):
+                    stats = stats.filter(members__gte=friends_max_capacity).filter(confirmed_members__lt=F('members'))
+
+                small_codes_list = list(stats.values_list('code', flat=True))
 
                 # Applications of given type in current edition belonging to small teams
                 small_team_apps = models.Application.objects.actual().filter(
@@ -95,11 +157,12 @@ class ApplicationAdmin(admin.ModelAdmin):
                     'run_id': None,
                     'preview_subject': None,
                     'preview_html': None,
+                    'include_discord': include_discord,
                 })
                 try:
                     preview_mail = Email(
                         'custom_broadcast',
-                        {'subject': subject, 'message': message},
+                        {'subject': subject, 'message': message, 'include_discord': include_discord},
                         to='preview@example.com',
                         request=request,
                     )
@@ -119,6 +182,7 @@ class ApplicationAdmin(admin.ModelAdmin):
                         application_type=app_type,
                         max_team_size=max_size,
                         include_no_team=include_no_team,
+                        include_discord=include_discord,
                         allowed_statuses=','.join(allowed_statuses),
                         edition_id=edition,
                         status=models.Broadcast.STATUS_PENDING,

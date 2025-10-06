@@ -34,7 +34,7 @@ def process_one_broadcast(broadcast_id: int, batch_size: int = 100, delay_ms: in
 
         elist = EmailList()
         for rid, email, _ in batch:
-            elist.add(Email('custom_broadcast', {'subject': b.subject, 'message': b.message}, to=email))
+            elist.add(Email('custom_broadcast', {'subject': b.subject, 'message': b.message, 'include_discord': b.include_discord}, to=email))
 
         try:
             accepted = elist.send_all(fail_silently=False) or 0

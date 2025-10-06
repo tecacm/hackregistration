@@ -56,6 +56,88 @@
                 {% endfor %}
             </ul>
         {% endif %}
+        {% if judging_scores.enabled %}
+            <div class="card border-0 shadow-sm mt-4">
+                <div class="card-body d-flex flex-column gap-3">
+                    <div class="d-flex justify-content-between align-items-start flex-column flex-lg-row gap-2">
+                        <div>
+                            <h2 class="h5 mb-1">{% translate "Judging results" %}</h2>
+                            <p class="text-muted mb-0">{% translate "Once organizers publish scores, your team can review them here." %}</p>
+                        </div>
+                        {% if judging_scores.available %}
+                            <span class="badge bg-success-subtle text-success-emphasis px-3 py-2">
+                                <i class="bi bi-broadcast-pin me-1"></i>{% translate "Published" %}
+                            </span>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis px-3 py-2">
+                                <i class="bi bi-shield-lock me-1"></i>{% translate "Not yet available" %}
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    {% if judging_scores.available %}
+                        <div class="row g-3 align-items-stretch">
+                            <div class="col-md-4">
+                                <div class="border rounded-4 p-3 h-100">
+                                    <div class="text-uppercase small fw-semibold text-muted">{% translate "Average score" %}</div>
+                                    <div class="display-6 fw-bold">{{ judging_scores.average|floatformat:2 }}</div>
+                                    <p class="text-muted mb-0">{% translate "Out of 100 points across released evaluations." %}</p>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="border rounded-4 p-3 h-100">
+                                    <div class="text-uppercase small fw-semibold text-muted">{% translate "Evaluations" %}</div>
+                                    <div class="display-6 fw-bold">{{ judging_scores.count }}</div>
+                                    <p class="text-muted mb-0">{% translate "Number of judges who released a score." %}</p>
+                                </div>
+                            </div>
+                            {% if friends_code.devpost_url %}
+                                <div class="col-md-4">
+                                    <div class="border rounded-4 p-3 h-100">
+                                        <div class="text-uppercase small fw-semibold text-muted">{% translate "Project link" %}</div>
+                                        <p class="mb-0"><a href="{{ friends_code.devpost_url }}" target="_blank" rel="noopener" class="link-primary">{{ friends_code.devpost_url }}</a></p>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="table-responsive mt-3">
+                            <table class="table align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{% translate "Judge" %}</th>
+                                        <th scope="col" class="text-end">{% translate "Score" %}</th>
+                                        <th scope="col" class="d-none d-md-table-cell">{% translate "Notes" %}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for evaluation in judging_scores.evaluations %}
+                                        <tr>
+                                            <td>{{ evaluation.judge }}</td>
+                                            <td class="text-end">{{ evaluation.score|floatformat:2 }}</td>
+                                            <td class="d-none d-md-table-cell text-muted small">{{ evaluation.notes|default:"—"|linebreaksbr }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info mb-0" role="alert">
+                            {% if judging_scores.pending_reason == 'no_team' %}
+                                {% translate "Join or create a team to see scoring information when it becomes available." %}
+                            {% elif judging_scores.pending_reason == 'project_missing' %}
+                                {% translate "Organizers are still linking your team to the judging system. Check back soon." %}
+                            {% elif judging_scores.pending_reason == 'no_scores' %}
+                                {% translate "Scores have not been released yet. They will appear here once organizers publish them." %}
+                            {% else %}
+                                {% translate "Scores will appear here once organizers publish them for teams." %}
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
         <div class="d-grid gap-2 col-lg-6 mx-auto mt-2">
             {% if friends_form %}
                 <button class="btn btn-primary" name="action" value="join">{% translate 'Join group' %}</button>

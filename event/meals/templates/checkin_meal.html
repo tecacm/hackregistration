@@ -11,7 +11,7 @@
 {% block content %}
     <div class="row justify-content-between mb-3">
         <div class="col-12 col-lg-3 d-grid d-md-block">
-            <a href="{% url 'meals_list' %}" class="btn btn-secondary col-12"><i
+            <a href="{% url 'event:meals_list' %}" class="btn btn-secondary col-12"><i
                     class="bi bi-caret-left-fill"></i> {% translate 'Back' %}</a>
         </div>
     </div>
@@ -60,6 +60,10 @@
         </div>
     </div>
 
+    {% translate 'Checked user!' as checked_user_message %}
+    {% translate 'Loading...' as loading_message %}
+    {% translate 'QR scanner' as qr_scanner_title %}
+
     <script nonce="{{ request.csp_nonce }}">
         $(document).ready(() => {
             let csrf_token = '{{ csrf_token }}'
@@ -82,7 +86,7 @@
                     success: (data) => {
                         message_text.removeClass('alert-danger alert-info')
                         message_text.addClass('alert-success')
-                        message_text.text('{% translate 'Checked user!' %}')
+                        message_text.text("{{ checked_user_message|escapejs }}")
                         full_name.text(data.full_name)
                         meals_max_times.text(data.meals_max_times)
                         times.text(data.times_eaten)
@@ -113,7 +117,7 @@
                     scanner.hide();
                     message_text.removeClass('alert-danger alert-success')
                     message_text.addClass('alert-info')
-                    message_text.text('{% translate 'Loading...' %}')
+                    message_text.text("{{ loading_message|escapejs }}")
                     message_visibility.show()
 
                     // send POST request to endpoint.
@@ -121,7 +125,7 @@
                 }
             }, {
                 popup: true,
-                popup_title: '{% translate 'QR scanner' %}',
+                popup_title: "{{ qr_scanner_title|escapejs }}",
                 popup_class: 'bg-{{ theme }}',
             });
 

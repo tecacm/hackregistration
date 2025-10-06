@@ -2,8 +2,10 @@
 {% block content %}
 <div id="email-content">
   <p>{{ message|linebreaksbr }}</p>
-  {% include 'mails/components/button.html' with url='https://hackmty.com/discord' text='Join our Discord' %}
-  <p style="margin-top:8px;">Direct link: <a href="https://hackmty.com/discord" target="_blank">hackmty.com/discord</a></p>
+  {% if include_discord %}
+    {% include 'mails/components/button.html' with url='https://hackmty.com/discord' text='Join our Discord' %}
+    <p style="margin-top:8px;">Direct link: <a href="https://hackmty.com/discord" target="_blank">hackmty.com/discord</a></p>
+  {% endif %}
   <div id="socials-content">{% include 'mails/components/socials.html' %}</div>
 </div>
 {% endblock %}

@@ -65,7 +65,7 @@ class MealFormView(PermissionRequiredMixin, TemplateView):
             meal = form.save()
             if request.POST.get('announcement', None) == 'true':
                 announcement(random.choice(self.announcement_templates) % meal.times)
-            return redirect('meals_list')
+            return redirect('event:meals_list')
         context = self.get_context_data(meal=meal)
         context.update({'form': form})
         return self.render_to_response(context)

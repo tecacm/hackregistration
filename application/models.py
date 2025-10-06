@@ -28,14 +28,20 @@ class FileField(dict):
 
 
 def get_new_order():
-    max_edition = Edition.objects.order_by('-order').first()
-    return max_edition.order + 1 if max_edition is not None else 0
+    max_order = Edition.objects.order_by('-order').values_list('order', flat=True).first()
+    if max_order is None:
+        return 0
+    return max_order + 1
 
 
 class Edition(models.Model):
     name = models.CharField(max_length=100)
     order = models.IntegerField(unique=True, default=get_new_order)
     track_selection_open = models.BooleanField(default=True, help_text=_('If disabled, teams cannot view or submit track preferences.'))
+    judging_scores_public = models.BooleanField(
+        default=False,
+        help_text=_('If enabled, teams can view their released judging scores on the friends portal.'),
+    )
 
     def __str__(self):
         return '%s - %s' % (self.order, self.name)
@@ -469,6 +475,7 @@ class Broadcast(models.Model):
     application_type = models.CharField(max_length=64)
     max_team_size = models.PositiveIntegerField(default=3)
     include_no_team = models.BooleanField(default=True)
+    include_discord = models.BooleanField(default=True, help_text=_('Whether to include the Discord invite block in messages.'))
     allowed_statuses = models.CharField(max_length=128, help_text=_('Comma-separated statuses.'))
     edition_id = models.IntegerField()
     status = models.CharField(max_length=1, choices=STATUSES, default=STATUS_PENDING)

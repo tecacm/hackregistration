@@ -16,11 +16,11 @@
         </div>
         {% if request.user.is_staff and not admin %}
             <div class="col-lg-3">
-                <a class="btn btn-secondary col-12" href="{% url 'checkin_list_admin' %}">{% translate 'Admin checkin' %}</a>
+                <a class="btn btn-secondary col-12" href="{% url 'event:checkin_list_admin' %}">{% translate 'Admin checkin' %}</a>
             </div>
         {% else %}
             <div class="col-lg-3">
-                <a class="btn btn-secondary col-12" href="{% url 'checkin_list' %}"><i class="bi bi-caret-left-fill"></i> {% translate 'Back' %}</a>
+                <a class="btn btn-secondary col-12" href="{% url 'event:checkin_list' %}"><i class="bi bi-caret-left-fill"></i> {% translate 'Back' %}</a>
             </div>
         {% endif %}
     </div>
@@ -39,19 +39,22 @@
 
     <video id="qr-video" style="width: 100%; height: 100%; display: none"></video>
 
+    {% translate 'QR scanner' as qr_scanner_title %}
+
     <script nonce="{{ request.csp_nonce }}">
         $(document).ready(() => {
             let qr_button = $('#qr_button')
             qr_button.css('margin-top', `${$('label[for="id_search"]').outerHeight(true)}px`)
+            const checkinUserUrlTemplate = "{% url 'event:checkin_user' 'REPLACE' %}"
 
             let scanner = new Scanner('qr-video', (content) => {
                 if (content.data) {
                     scanner.stop()
-                    window.location.href = '{% url 'checkin_user' 'replace' %}'.replace('replace', encodeURIComponent(content.data))
+                    window.location.href = checkinUserUrlTemplate.replace('REPLACE', encodeURIComponent(content.data))
                 }
             }, {
                 popup: true,
-                popup_title: '{% translate 'QR scanner' %}',
+                popup_title: "{{ qr_scanner_title|escapejs }}",
                 popup_class: 'bg-{{ theme }}',
             })
 

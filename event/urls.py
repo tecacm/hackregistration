@@ -8,6 +8,7 @@ urlpatterns = [
     path('checkin/', views.CheckinList.as_view(), name='checkin_list'),
     path('checkin/admin/', views.CheckinAdminList.as_view(), name='checkin_list_admin'),
     path('checkin/<str:uid>/', views.CheckinUser.as_view(), name='checkin_user'),
+    path('judges/', views.JudgesGuideView.as_view(), name='judges_guide'),
 ]
 
 if is_installed('event.messages'):

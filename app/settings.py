@@ -84,6 +84,7 @@ INSTALLED_APPS = [
     'event',
     'event.messages',
     'event.meals',
+    'judging',
     'anymail',
 ]
 
@@ -262,12 +263,19 @@ THEME = 'both'
 AUTH_USER_MODEL = 'user.User'
 LOGIN_URL = '/auth/login'
 
+# Judging portal link used in judge onboarding page
+JUDGING_PORTAL_URL = '/judging/'
+
 # Upload size limits: Django will raise RequestDataTooBig when the request
 # body exceeds DATA_UPLOAD_MAX_MEMORY_SIZE. Reverse proxy (nginx) also has
 # client_max_body_size; keep them coordinated. Defaults here raise the limit
 # to 10 MiB which is suitable for typical permission slips or resumes.
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('DATA_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024))
 FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('FILE_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024))
+# Admin bulk actions (like email previews) can submit thousands of checkbox
+# values which exceed Django's default 1,000-field limit. Raise the ceiling so
+# large selections do not trigger TooManyFieldsSent.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = int(os.environ.get('DATA_UPLOAD_MAX_NUMBER_FIELDS', '20000'))
 
 # JWT settings
 JWT_OIDC = {
