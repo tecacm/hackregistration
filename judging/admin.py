@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 
@@ -11,12 +12,63 @@ from .models import (
 )
 
 
+class JudgingRubricAdminForm(forms.ModelForm):
+	track = forms.ChoiceField(required=False)
+
+	class Meta:
+		model = JudgingRubric
+		fields = '__all__'
+
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.fields['track'].choices = self._build_track_choices()
+		self.fields['track'].help_text = JudgingRubric._meta.get_field('track').help_text
+
+	def _build_track_choices(self):
+		from friends.models import FriendsCode
+
+		blank_choice = ('', _('General (no track)'))
+		friend_tracks = list(FriendsCode.TRACKS)
+		friend_lookup = {value: label for value, label in friend_tracks}
+
+		existing_tracks = set()
+		existing_tracks.update(
+			track.strip()
+			for track in JudgingProject.objects.order_by().values_list('track', flat=True).distinct()
+			if track and track.strip()
+		)
+		existing_tracks.update(
+			track.strip()
+			for track in JudgingRubric.objects.order_by().values_list('track', flat=True).distinct()
+			if track and track.strip()
+		)
+
+		choices = [blank_choice]
+		for value, label in friend_tracks:
+			choices.append((value, label))
+			existing_tracks.discard(value)
+
+		current_value = (self.instance.track or '').strip()
+		if current_value:
+			existing_tracks.add(current_value)
+
+		for track in sorted(existing_tracks, key=lambda item: item.lower()):
+			label = friend_lookup.get(track, track)
+			choices.append((track, label))
+
+		return choices
+
+	def clean_track(self):
+		return (self.cleaned_data.get('track') or '').strip()
+
+
 @admin.register(JudgingRubric)
 class JudgingRubricAdmin(admin.ModelAdmin):
-	list_display = ('edition', 'name', 'version', 'is_active', 'created_at')
-	list_filter = ('edition', 'is_active')
-	search_fields = ('name',)
+	list_display = ('edition', 'track', 'name', 'version', 'is_active', 'created_at')
+	list_filter = ('edition', 'track', 'is_active')
+	search_fields = ('name', 'track')
 	readonly_fields = ('created_at', 'updated_at')
+	form = JudgingRubricAdminForm
 
 
 @admin.register(JudgingProject)

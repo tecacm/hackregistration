@@ -118,6 +118,40 @@ class JudgingViewTests(JudgingTestCase):
 		self.assertEqual(evaluation.status, JudgingEvaluation.STATUS_SUBMITTED)
 
 
+class JudgingTrackRubricTests(JudgingTestCase):
+	def setUp(self):
+		super().setUp()
+		self.client = Client()
+		self.track_project = JudgingProject.objects.create(
+			edition=self.edition,
+			name='AI Team',
+			track='AI',
+		)
+
+	def _make_track_rubric(self, track='AI', version=1):
+		return JudgingRubric.objects.create(
+			edition=self.edition,
+			name=f'{track} Rubric',
+			version=version,
+			track=track,
+			definition=self.rubric.definition,
+		)
+
+	def test_active_for_track_prefers_specific_rubric(self):
+		track_rubric = self._make_track_rubric(track='AI', version=1)
+		resolved = JudgingRubric.active_for_edition(self.edition, track='AI')
+		self.assertEqual(resolved, track_rubric)
+		fallback = JudgingRubric.active_for_edition(self.edition, track='Health')
+		self.assertEqual(fallback, self.rubric)
+
+	def test_score_view_uses_track_specific_rubric(self):
+		track_rubric = self._make_track_rubric(track='AI', version=1)
+		self.client.force_login(self.judge, backend='django.contrib.auth.backends.ModelBackend')
+		response = self.client.get(reverse('judging:score', args=[self.track_project.pk]))
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.context['rubric'], track_rubric)
+
+
 class JudgingScanTests(JudgingTestCase):
 	def setUp(self):
 		super().setUp()

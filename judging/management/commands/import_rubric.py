@@ -35,6 +35,13 @@ class Command(BaseCommand):
             action="store_true",
             help="Mark the imported rubric as the active rubric for the edition.",
         )
+        parser.add_argument(
+            "--track",
+            dest="track",
+            type=str,
+            default="",
+            help="Optional track name this rubric applies to. Leave blank for general use.",
+        )
 
     def handle(self, *args, **options):
         edition_id: int = options["edition"]
@@ -42,6 +49,7 @@ class Command(BaseCommand):
         name: str = options["name"]
         version: int | None = options["version"]
         activate: bool = options["activate"]
+        track: str = options["track"] or ""
 
         try:
             edition = Edition.objects.get(pk=edition_id)
@@ -60,14 +68,22 @@ class Command(BaseCommand):
         if not isinstance(definition, dict):
             raise CommandError("The JSON file must contain an object at the top level.")
 
+        normalized_track = track.strip()
+
         if version is None:
-            latest = JudgingRubric.objects.filter(edition=edition).order_by("-version").first()
+            latest = (
+                JudgingRubric.objects
+                .filter(edition=edition, track__iexact=normalized_track)
+                .order_by("-version")
+                .first()
+            )
             version = 1 if latest is None else latest.version + 1
 
         rubric = JudgingRubric(
             edition=edition,
             name=name,
             version=version,
+            track=normalized_track,
             definition=definition,
             is_active=activate,
         )
@@ -76,6 +92,6 @@ class Command(BaseCommand):
         rubric.save()
 
         if activate:
-            JudgingRubric.objects.filter(edition=edition).exclude(pk=rubric.pk).update(is_active=False)
+            JudgingRubric.objects.filter(edition=edition, track__iexact=normalized_track).exclude(pk=rubric.pk).update(is_active=False)
 
         self.stdout.write(self.style.SUCCESS(f"Imported rubric '{rubric.name}' version {rubric.version} for {edition}."))

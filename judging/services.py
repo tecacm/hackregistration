@@ -35,7 +35,7 @@ def upsert_evaluation(
     rubric: JudgingRubric | None = None,
 ) -> EvaluationResult:
     """Create or update a judging evaluation in a single transaction."""
-    rubric = rubric or JudgingRubric.active_for_edition(project.edition)
+    rubric = rubric or JudgingRubric.active_for_edition(project.edition, track=project.track)
     if rubric is None:
         raise ValueError("No active rubric is configured for this edition.")
 

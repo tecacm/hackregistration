@@ -261,8 +261,17 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
         help_text=_('Let organisers know the perspective you bring when judging.'),
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, show_judge_type=None, **kwargs):
+        instance = kwargs.get('instance')
+        if show_judge_type is None:
+            if instance is not None:
+                show_judge_type = instance.groups.filter(name='Judge').exists()
+            else:
+                show_judge_type = False
+        self.show_judge_type = bool(show_judge_type)
         super().__init__(*args, **kwargs)
+        if not self.show_judge_type:
+            self.fields.pop('judge_type', None)
         instance = getattr(self, 'instance', None)
 
         birth_field = self.fields['birth_date']
@@ -284,6 +293,9 @@ class UserProfileForm(BootstrapFormMixin, forms.ModelForm):
 
     def get_bootstrap_field_info(self):
         info = super().get_bootstrap_field_info()
+        if not getattr(self, 'show_judge_type', False):
+            for section in info.values():
+                section['fields'] = [field for field in section.get('fields', []) if field.get('name') != 'judge_type']
         instance = getattr(self, 'instance', None)
         if not is_instance_on_db(instance):  # instance not in DB
             fields = info[_('Personal Info')]['fields']

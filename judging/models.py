@@ -133,6 +133,12 @@ class JudgingRubric(models.Model):
 	edition = models.ForeignKey(Edition, on_delete=models.CASCADE, related_name="judging_rubrics")
 	name = models.CharField(max_length=120, default="Default rubric")
 	version = models.PositiveIntegerField(help_text=_('Increment every time you update the rubric definition.'))
+	track = models.CharField(
+		max_length=80,
+		blank=True,
+		default='',
+		help_text=_('Optional track name this rubric applies to. Leave blank for general use.'),
+	)
 	definition = models.JSONField(default=default_rubric_definition)
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
@@ -140,10 +146,15 @@ class JudgingRubric(models.Model):
 
 	class Meta:
 		ordering = ['-edition_id', '-version']
-		unique_together = ('edition', 'version')
+		unique_together = ('edition', 'track', 'version')
 
 	def __str__(self):
-		return f"{self.edition.name} v{self.version}"
+		track_suffix = f" – {self.track}" if self.track else ""
+		return f"{self.edition.name}{track_suffix} v{self.version}"
+
+	def save(self, *args, **kwargs):
+		self.track = (self.track or '').strip()
+		return super().save(*args, **kwargs)
 
 	def clean(self):
 		super().clean()
@@ -161,8 +172,18 @@ class JudgingRubric(models.Model):
 					raise ValidationError({'definition': _('Criterion max_score must be a positive number.')})
 
 	@classmethod
-	def active_for_edition(cls, edition: Edition):
-		return cls.objects.filter(edition=edition, is_active=True).order_by('-version').first()
+	def active_for_edition(cls, edition: Edition, track: str | None = None):
+		qs = cls.objects.filter(edition=edition, is_active=True)
+		track_value = (track or '').strip()
+		if track_value:
+			track_rubric = qs.filter(track__iexact=track_value).order_by('-version').first()
+			if track_rubric:
+				return track_rubric
+		return qs.filter(models.Q(track='') | models.Q(track__isnull=True)).order_by('-version').first()
+
+	@classmethod
+	def active_for_project(cls, project: 'JudgingProject'):
+		return cls.active_for_edition(project.edition, track=project.track)
 
 
 class JudgingProject(models.Model):

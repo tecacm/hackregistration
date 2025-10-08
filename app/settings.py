@@ -264,7 +264,10 @@ MEDIA_ROOT = 'files'
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.0/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# Use traditional 32-bit AutoField so third-party apps without BigAutoField
+# migrations (e.g., django-password-validators) do not generate spurious
+# migration files in site-packages.
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 
 # App theme: dark, light, both
 THEME = 'both'

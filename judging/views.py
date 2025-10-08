@@ -142,7 +142,7 @@ class ScoreProjectView(LoginRequiredMixin, JudgeAccessMixin, FormView):
             pk=kwargs['pk'],
             is_active=True,
         )
-        self.rubric = JudgingRubric.active_for_edition(self.project.edition)
+        self.rubric = JudgingRubric.active_for_edition(self.project.edition, track=self.project.track)
         if self.rubric is None:
             messages.error(request, _('No active rubric configured for this edition. Please contact organizers.'))
             return redirect('judging:dashboard')
