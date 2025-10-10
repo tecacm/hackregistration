@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block subtitle %}Team matchmaking{% endblock %}
+
+{% block content %}
+	<div class="text-center">
+		{% if result.success %}
+			<div class="alert alert-success" role="alert">
+				{{ result.message }}
+			</div>
+		{% else %}
+			<div class="alert alert-danger" role="alert">
+				{{ result.message }}
+			</div>
+		{% endif %}
+		<p class="mt-4">You can close this tab. We'll reach out by email once we have an update.</p>
+	</div>
+{% endblock %}

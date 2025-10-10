@@ -219,7 +219,7 @@ class ProjectListView(LoginRequiredMixin, OrganizerAccessMixin, ListView):
         evaluations_prefetch = Prefetch(
             'evaluations',
             queryset=JudgingEvaluation.objects.select_related('judge').order_by(
-                'judge__last_name', 'judge__first_name', 'judge__username'
+                'judge__last_name', 'judge__first_name', 'judge__email'
             ),
         )
         return (

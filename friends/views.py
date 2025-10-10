@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from django.conf import settings
 from django.contrib import messages
 from django.db import Error, transaction
@@ -15,9 +13,9 @@ from application.mixins import ApplicationPermissionRequiredMixin
 from application.models import Application, Edition, ApplicationTypeConfig, ApplicationLog
 from application.views import ParticipantTabsMixin
 from friends.filters import FriendsInviteTableFilter
-from friends.forms import FriendsForm, DevpostForm, TrackPreferenceForm
+from friends.forms import FriendsForm
+from friends.matchmaking import MatchmakingService
 from friends.models import FriendsCode
-from judging.models import JudgingEvaluation, JudgingProject
 from friends.tables import FriendInviteTable
 from review.emails import get_invitation_or_waitlist_email
 from review.views import ReviewApplicationTabsMixin, ApplicationListInvite
@@ -31,13 +29,8 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
     def handle_permissions(self, request):
         permission = super().handle_permissions(request)
         edition = Edition.get_default_edition()
-        if (
-            permission is None
-            and not Application.objects.actual()
-                .exclude(status=Application.STATUS_CANCELLED)
-                .filter(type__name="Hacker", user=request.user, edition=edition)
-                .exists()
-        ):
+        if permission is None and not \
+                Application.objects.filter(type__name="Hacker", user=request.user, edition=edition).exists():
             return self.handle_no_permission()
         return permission
 
@@ -46,97 +39,17 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        friends_code = FriendsCode.objects.filter(user=self.request.user).order_by('-id').first()
-        if friends_code:
+        try:
+            friends_code = FriendsCode.objects.get(user=self.request.user)
             context.update({"friends_code": friends_code})
-            members_count = friends_code.get_members().count()
-            context.update({"members_count": members_count})
-            # If team is full, show Devpost URL entry
-            friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
-            if friends_max_capacity and members_count >= friends_max_capacity:
-                context.update({"devpost_form": DevpostForm(initial={'devpost_url': friends_code.devpost_url})})
-        else:
+        except FriendsCode.DoesNotExist:
             context.update({"friends_form": FriendsForm()})
         context.update({'friends_max_capacity': getattr(settings, 'FRIENDS_MAX_CAPACITY', None)})
-        # Track selection visibility flag
-        try:
-            edition_obj = Edition.objects.get(pk=Edition.get_default_edition())
-            context['track_selection_open'] = getattr(edition_obj, 'track_selection_open', True)
-            context['judging_scores'] = self.build_judging_scores_context(edition_obj, friends_code)
-        except Exception:
-            context['track_selection_open'] = True
-            context['judging_scores'] = {'enabled': False, 'available': False}
-        return context
-
-    def build_judging_scores_context(self, edition, friends_code):
-        context = {
-            'enabled': getattr(edition, 'judging_scores_public', False),
-            'available': False,
-            'average': None,
-            'count': 0,
-            'evaluations': [],
-            'pending_reason': None,
-            'project': None,
-        }
-        if not context['enabled']:
-            context['pending_reason'] = 'disabled'
-            return context
-        if friends_code is None:
-            context['pending_reason'] = 'no_team'
-            return context
-
-        project = (
-            JudgingProject.objects.select_related('edition')
-            .prefetch_related('evaluations__judge')
-            .filter(edition=edition, friends_code__code=friends_code.code)
-            .first()
-        )
-        if project is None:
-            context['pending_reason'] = 'project_missing'
-            return context
-
-        released_evaluations = [
-            evaluation for evaluation in project.evaluations.all()
-            if evaluation.status == JudgingEvaluation.STATUS_RELEASED
-        ]
-        if not released_evaluations:
-            context['pending_reason'] = 'no_scores'
-            return context
-
-        total_score = sum((evaluation.total_score for evaluation in released_evaluations), Decimal('0'))
-        average = (total_score / Decimal(len(released_evaluations))).quantize(Decimal('0.01'))
-        evaluation_details = []
-        for evaluation in released_evaluations:
-            judge = evaluation.judge
-            display_name = ''
-            if judge:
-                display_name = (
-                    getattr(judge, 'get_short_name', lambda: '')()
-                    or judge.get_full_name()
-                    or judge.username
-                )
-            if not display_name:
-                display_name = _('Judge')
-            evaluation_details.append({
-                'judge': display_name,
-                'score': evaluation.total_score,
-                'submitted_at': evaluation.submitted_at,
-                'notes': evaluation.notes,
-            })
-
-        context.update({
-            'available': True,
-            'average': average,
-            'count': len(released_evaluations),
-            'evaluations': evaluation_details,
-            'project': project,
-            'pending_reason': None,
-        })
         return context
 
     def post(self, request, **kwargs):
         action = request.POST.get("action")
-        if action not in ["create", "join", "leave", "set_devpost"]:
+        if action not in ["create", "join", "leave"]:
             return HttpResponseBadRequest()
         method = getattr(self, action)
         return method()
@@ -146,8 +59,6 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
         code = kwargs.get("code", None)
         if code is not None:
             default["code"] = code
-        # Ensure the user holds only one FriendsCode record
-        FriendsCode.objects.filter(user=self.request.user).delete()
         FriendsCode(**default).save()
         return redirect(reverse("join_friends"))
 
@@ -160,15 +71,8 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
                 form.add_error("friends_code", "Invalid code!")
             elif friend_code.reached_max_capacity():
                 form.add_error("friends_code", "This team is already full")
-            elif friend_code.is_closed_for_user(self.request.user):
-                # Allow switching teams even if the target team is closed,
-                # as long as the joining user is already invited/confirmed/attended in this edition
-                edition_pk = Edition.get_default_edition()
-                user_app = Application.objects.filter(user=self.request.user, edition_id=edition_pk).first()
-                if not user_app or user_app.status not in FriendsCode.STATUS_NOT_ALLOWED_TO_JOIN_TEAM:
-                    form.add_error("friends_code", "This team has one application invited and cannot be joined")
-                else:
-                    return self.create(code=code)
+            elif friend_code.is_closed():
+                form.add_error("friends_code", "This team has one application invited and cannot be joined")
             else:
                 return self.create(code=code)
         context = self.get_context_data()
@@ -176,28 +80,11 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
         return self.render_to_response(context)
 
     def leave(self, **kwargs):
-        FriendsCode.objects.filter(user=self.request.user).delete()
-        return redirect(reverse("join_friends"))
-
-    def set_devpost(self, **kwargs):
-        friends_code = FriendsCode.objects.filter(user=self.request.user).order_by('-id').first()
-        if not friends_code:
-            return redirect(reverse("join_friends"))
-        members_count = friends_code.get_members().count()
-        friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
-        if not (friends_max_capacity and members_count >= friends_max_capacity):
-            messages.error(self.request, _('Your team must be full to set the Devpost URL.'))
-            return redirect(reverse("join_friends"))
-        form = DevpostForm(self.request.POST)
-        if form.is_valid():
-            url = form.cleaned_data['devpost_url']
-            # Propagate to all records of the same group code
-            FriendsCode.objects.filter(code=friends_code.code).update(devpost_url=url)
-            messages.success(self.request, _('Devpost URL saved.'))
-        else:
-            context = self.get_context_data()
-            context.update({"devpost_form": form})
-            return self.render_to_response(context)
+        try:
+            friends_code = FriendsCode.objects.get(user=self.request.user)
+            friends_code.delete()
+        except FriendsCode.DoesNotExist:
+            pass
         return redirect(reverse("join_friends"))
 
 
@@ -222,11 +109,8 @@ class FriendsListInvite(ApplicationPermissionRequiredMixin, IsOrganizerMixin, Re
     def get_queryset(self):
         edition = Edition.get_default_edition()
         application_type = get_object_or_404(ApplicationTypeConfig, name__iexact=self.get_application_type())
-        qs = application_type.application_set.filter(edition_id=edition, user__friendscode__isnull=False)
-        code = self.request.GET.get('code')
-        if code:
-            qs = qs.filter(user__friendscode__code=code)
-        return self.table_class.get_queryset(qs)
+        return self.table_class.get_queryset(application_type.application_set.filter(edition_id=edition,
+                                                                                     user__friendscode__isnull=False))
 
     def post(self, request, *args, **kwargs):
         selection = request.POST.getlist('select')
@@ -253,108 +137,11 @@ class FriendsListInvite(ApplicationPermissionRequiredMixin, IsOrganizerMixin, Re
         return redirect(reverse('invite_friends') + ('?type=%s' % self.request.GET.get('type', 'hacker')))
 
 
-class FriendsTrackSelectionView(LoginRequiredMixin, TemplateView):
-    template_name = 'friends_track_selection.html'
+class FriendsMergeOptInView(TemplateView):
+    template_name = 'friends/merge_opt_in.html'
 
-    def get_friends_group(self):
-        return FriendsCode.objects.filter(user=self.request.user).order_by('-id').first()
-
-    def dispatch(self, request, *args, **kwargs):
-        group = self.get_friends_group()
-        if not group or not group.can_select_track():
-            messages.error(request, _('Your team must be full and all members confirmed to select a track.'))
-            return redirect(reverse('join_friends'))
-        return super().dispatch(request, *args, **kwargs)
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        group = self.get_friends_group()
-        context['group'] = group
-        context['track_counts'] = FriendsCode.track_counts()
-        context['track_capacity'] = FriendsCode.track_capacity()
-        # Flag controlling visibility (from Edition)
-        from application.models import Edition
-        try:
-            edition = Edition.objects.get(pk=Edition.get_default_edition())
-            context['track_selection_open'] = edition.track_selection_open
-        except Exception:
-            context['track_selection_open'] = True  # fail open if edition lookup fails
-        if group.track_assigned:
-            context['assigned'] = group.track_assigned
-            context['assigned_label'] = dict(FriendsCode.TRACKS).get(group.track_assigned, group.track_assigned)
-        else:
-            if context.get('track_selection_open'):
-                initial = {}
-                if group.track_pref_1:
-                    initial = {'track_pref_1': group.track_pref_1, 'track_pref_2': group.track_pref_2, 'track_pref_3': group.track_pref_3}
-                context['form'] = TrackPreferenceForm(initial=initial)
-        return context
-
-    def post(self, request, *args, **kwargs):
-        group = self.get_friends_group()
-        if group.track_assigned:
-            messages.info(request, _('Track already assigned.'))
-            return redirect(reverse('friends_track_selection'))
-        # Gating disabled form submissions
-        from application.models import Edition
-        try:
-            edition = Edition.objects.get(pk=Edition.get_default_edition())
-            if not edition.track_selection_open:
-                messages.error(request, _('Track selection is currently closed.'))
-                return redirect(reverse('friends_track_selection'))
-        except Exception:
-            pass
-        form = TrackPreferenceForm(request.POST)
-        if not form.is_valid():
-            context = self.get_context_data()
-            context['form'] = form
-            return self.render_to_response(context)
-        # Save preferences to all members' records for consistency
-        prefs = [form.cleaned_data['track_pref_1'], form.cleaned_data['track_pref_2'], form.cleaned_data['track_pref_3']]
-        FriendsCode.objects.filter(code=group.code).update(track_pref_1=prefs[0], track_pref_2=prefs[1], track_pref_3=prefs[2])
-        # Assignment algorithm: pick first available preference respecting capacity
-        counts = FriendsCode.track_counts()
-        capacity = FriendsCode.track_capacity()
-        assigned = None
-        for pref in prefs:
-            if counts.get(pref, 0) < capacity:
-                assigned = pref
-                break
-        if assigned is None:
-            messages.error(request, _('All selected tracks are full. Please try different choices.'))
-            return redirect(reverse('friends_track_selection'))
-        from django.utils import timezone
-        FriendsCode.objects.filter(code=group.code).update(track_assigned=assigned, track_assigned_date=timezone.now())
-        self.send_track_email(group.code, assigned)
-        messages.success(request, _('Track assigned: %(track)s') % {'track': dict(FriendsCode.TRACKS).get(assigned, assigned)})
-        return redirect(reverse('friends_track_selection'))
-
-    def send_track_email(self, code, track):
-        # Send one email per member
-        members = FriendsCode.objects.filter(code=code).select_related('user')
-        from app.emails import Email
-        from django.urls import reverse
-        track_label = dict(FriendsCode.TRACKS).get(track, track)
-        # Build an absolute dashboard / track selection URL for the CTA button
-        try:
-            dashboard_path = reverse('friends_track_selection')
-        except Exception:
-            dashboard_path = '/'  # Fallback to site root if URL name missing
-        if self.request is not None:
-            try:
-                dashboard_url = self.request.build_absolute_uri(dashboard_path)
-            except Exception:
-                dashboard_url = dashboard_path
-        else:
-            dashboard_url = dashboard_path
-        for m in members:
-            Email(
-                name='track_assigned',
-                context={
-                    'track': track_label,
-                    'code': code,
-                    'dashboard_url': dashboard_url,
-                },
-                to=m.user.email,
-                request=self.request
-            ).send()
+    def get(self, request, *args, **kwargs):
+        token = kwargs.get('token')
+        result = MatchmakingService.process_opt_in_token(token)
+        context = self.get_context_data(result=result)
+        return self.render_to_response(context)

@@ -83,7 +83,12 @@ class JudgingProjectAdmin(admin.ModelAdmin):
 class JudgingEvaluationAdmin(admin.ModelAdmin):
 	list_display = ('project', 'judge', 'status', 'total_score', 'submitted_at', 'released_at')
 	list_filter = ('status', 'project__edition')
-	search_fields = ('project__name', 'judge__email', 'judge__username')
+	search_fields = (
+		'project__name',
+		'judge__email',
+		'judge__first_name',
+		'judge__last_name',
+	)
 	readonly_fields = ('total_score', 'created_at', 'updated_at')
 
 

@@ -1,459 +1,445 @@
-from django.contrib import admin
 from django.conf import settings
-from django.utils.html import format_html
-from django.db.models import Count
-from django.db import connection
-from django.http import HttpResponse
-from django import forms
-from django.contrib import messages
-import csv
+from django.contrib import admin, messages
+from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.http import HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
-from friends.models import FriendsCode, FriendsMembershipLog
-from application.models import Application, Edition
-
-
-class MembersSizeFilter(admin.SimpleListFilter):
-	title = 'Members size'
-	parameter_name = 'members_size'
-
-	def lookups(self, request, model_admin):
-		cap = getattr(settings, 'FRIENDS_MAX_CAPACITY', 4) or 4
-		return [(str(i), str(i)) for i in range(1, cap + 1)]
-
-	def queryset(self, request, queryset):
-		value = self.value()
-		if not value:
-			return queryset
-		try:
-			size = int(value)
-		except ValueError:
-			return queryset
-		codes = FriendsCode.objects.values('code').annotate(cnt=Count('id')).filter(cnt=size).values_list('code', flat=True)
-		return queryset.filter(code__in=list(codes))
-
-
-class HasDevpostFilter(admin.SimpleListFilter):
-	title = 'Has Devpost'
-	parameter_name = 'has_devpost'
-
-	def lookups(self, request, model_admin):
-		return [('yes', 'Yes'), ('no', 'No')]
-
-	def queryset(self, request, queryset):
-		value = self.value()
-		if value == 'yes':
-			codes = FriendsCode.objects.exclude(devpost_url__isnull=True).exclude(devpost_url__exact='')\
-				.values_list('code', flat=True).distinct()
-			return queryset.filter(code__in=list(codes))
-		if value == 'no':
-			codes = FriendsCode.objects.exclude(devpost_url__isnull=True).exclude(devpost_url__exact='')\
-				.values_list('code', flat=True).distinct()
-			return queryset.exclude(code__in=list(codes))
-		return queryset
-
-
-class AnyInvitedConfirmedFilter(admin.SimpleListFilter):
-	title = 'Any invited/confirmed'
-	parameter_name = 'has_invited_confirmed'
-
-	def lookups(self, request, model_admin):
-		return [('yes', 'Yes'), ('no', 'No')]
-
-	def queryset(self, request, queryset):
-		value = self.value()
-		if not value:
-			return queryset
-		edition = Edition.get_default_edition()
-		codes = Application.objects.filter(
-			user__friendscode__code__isnull=False,
-			edition=edition,
-			status__in=[Application.STATUS_INVITED, Application.STATUS_CONFIRMED]
-		).values_list('user__friendscode__code', flat=True).distinct()
-		if value == 'yes':
-			return queryset.filter(code__in=list(codes))
-		else:
-			return queryset.exclude(code__in=list(codes))
+from friends.matchmaking import MatchmakingService
+from friends.models import (
+	FriendsCode,
+	FriendsMergeEventLog,
+	FriendsMergePoolEntry,
+	FriendsMembershipLog,
+	get_random_string,
+)
+from friends.forms import (
+	MatchmakingInviteForm,
+	MatchmakingRunForm,
+	TeamMembershipAddForm,
+	TeamMembershipRemoveForm,
+)
 
 
 @admin.register(FriendsCode)
 class FriendsCodeAdmin(admin.ModelAdmin):
-	list_display = (
-		'code', 'members_count', 'capacity', 'pending_count', 'invited_count', 'confirmed_count', 'track_assigned', 'devpost_link',
-	)
+	list_display = ('code', 'user', 'seeking_merge', 'seeking_merge_updated_at', 'track_assigned')
 	search_fields = ('code', 'user__email', 'user__first_name', 'user__last_name')
-	readonly_fields = ('code', 'members_count', 'capacity', 'devpost_link', 'members_list',
-	                  'pending_count', 'invited_count', 'confirmed_count')
-	fields = (
-		'code', 'devpost_url', 'devpost_link', 'track_assigned',
-		'members_count', 'capacity',
-		'members_list',
-	)
-	list_filter = (MembersSizeFilter, HasDevpostFilter, AnyInvitedConfirmedFilter)
-	actions = ('export_csv', 'open_invite_view', 'add_member_action', 'remove_selected_members', 'clear_track_assignment', 'reset_preferences')
-
-	class AddMemberForm(forms.Form):
-		email = forms.EmailField(required=True, help_text='Email of existing user to add to this team')
-		force_move = forms.BooleanField(required=False, help_text='If user already in another team, move them here')
+	list_filter = ('seeking_merge', 'track_assigned')
+	readonly_fields = ('seeking_merge_updated_at',)
+	change_list_template = 'admin/friends/friendscode/change_list.html'
 
 	def get_urls(self):
-		from django.urls import path
 		urls = super().get_urls()
 		custom = [
-			path('add-member/<str:code>/', self.admin_site.admin_view(self.add_member_view), name='friends_add_member'),
-			path('remove-member/<str:code>/<int:member_id>/', self.admin_site.admin_view(self.remove_member_view), name='friends_remove_member'),
-			path('assign-track/<str:code>/', self.admin_site.admin_view(self.assign_track_view), name='friends_assign_track'),
+			path(
+				'membership-manager/',
+				self.admin_site.admin_view(self.membership_view),
+				name='friends_friendscode_membership',
+			),
 		]
 		return custom + urls
 
-	def add_member_view(self, request, code):
-		from django.shortcuts import render, redirect
-		team_qs = FriendsCode.objects.filter(code=code)
-		if not team_qs.exists():
-			messages.error(request, 'Team not found')
-			return redirect('..')
-		form = self.AddMemberForm(request.POST or None)
-		if request.method == 'POST' and form.is_valid():
-			from django.contrib.auth import get_user_model
-			User = get_user_model()
-			email = form.cleaned_data['email']
-			force_move = form.cleaned_data.get('force_move')
-			try:
-				user = User.objects.get(email__iexact=email)
-			except User.DoesNotExist:
-				messages.error(request, 'User with that email does not exist.')
-				return redirect(request.path)
-			# Capacity check
-			cap = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
-			if cap and team_qs.count() >= cap:
-				messages.error(request, 'Team is already at maximum capacity.')
-				return redirect(request.path)
-			# Ensure user not already in any team for this edition
-			current = FriendsCode.objects.filter(user=user).first()
-			if current and current.code != code:
-				if not force_move:
-					messages.error(request, 'User already on a team. Use force move to relocate.')
-					return redirect(request.path)
-				from friends.models import FriendsMembershipLog
-				old_code = current.code
-				FriendsCode.objects.filter(user=user).delete()
-				FriendsCode.objects.create(user=user, code=code)
-				FriendsMembershipLog.objects.create(admin_user=request.user, affected_user=user, action=FriendsMembershipLog.ACTION_MOVE, from_code=old_code, to_code=code)
-				messages.success(request, f'Moved {user.email} from {old_code} to {code}.')
-			else:
-				FriendsCode.objects.create(user=user, code=code)
-				from friends.models import FriendsMembershipLog
-				FriendsMembershipLog.objects.create(admin_user=request.user, affected_user=user, action=FriendsMembershipLog.ACTION_ADD, to_code=code)
-				messages.success(request, f'Added {user.email} to team {code}.')
-			return redirect('../../')  # back to list
+	def changelist_view(self, request, extra_context=None):
+		extra_context = extra_context or {}
+		extra_context['membership_url'] = reverse('admin:friends_friendscode_membership')
+		return super().changelist_view(request, extra_context=extra_context)
+
+	def membership_view(self, request):
+		add_form = TeamMembershipAddForm(prefix='add')
+		remove_form = TeamMembershipRemoveForm(prefix='remove')
+		if request.method == 'POST':
+			if 'add-submit' in request.POST:
+				add_form = TeamMembershipAddForm(request.POST, prefix='add')
+				if add_form.is_valid():
+					self._handle_add(request, add_form.cleaned_data)
+					return HttpResponseRedirect(request.path)
+			elif 'remove-submit' in request.POST:
+				remove_form = TeamMembershipRemoveForm(request.POST, prefix='remove')
+				if remove_form.is_valid():
+					self._handle_remove(request, remove_form.cleaned_data)
+					return HttpResponseRedirect(request.path)
+
 		context = dict(
 			self.admin_site.each_context(request),
-			form=form,
-			team_code=code,
-			team_members=team_qs.select_related('user'),
-			title=f'Add member to team {code}'
+			title=_('Team membership manager'),
+			add_form=add_form,
+			remove_form=remove_form,
 		)
-		return render(request, 'admin/friends/add_member.html', context)
+		return TemplateResponse(request, 'admin/friends/team_membership.html', context)
 
-	def remove_member_view(self, request, code, member_id):
-		from django.shortcuts import redirect
-		member = FriendsCode.objects.filter(code=code, id=member_id).select_related('user').first()
-		if not member:
-			messages.error(request, 'Member not found.')
-			return redirect('../../')
-			
-		from friends.models import FriendsMembershipLog
-		user = member.user
-		member.delete()
-		FriendsMembershipLog.objects.create(admin_user=request.user, affected_user=user, action=FriendsMembershipLog.ACTION_REMOVE, from_code=code)
-		messages.success(request, f'Removed {user.email} from team {code}.')
-		return redirect(f'../../../add-member/{code}/')
-
-	def add_member_action(self, request, queryset):
-		codes = list(queryset.values_list('code', flat=True).distinct())
-		if len(codes) != 1:
-			self.message_user(request, 'Select exactly one team to add a member.', level='error')
+	def _handle_add(self, request, cleaned_data):
+		User = get_user_model()
+		email = cleaned_data['email'].lower()
+		team_code = cleaned_data.get('team_code') or ''
+		move_if_exists = cleaned_data.get('move_if_exists', False)
+		user = User.objects.filter(email__iexact=email).first()
+		if user is None:
+			messages.error(request, _('No user with email %(email)s was found.') % {'email': email})
 			return
-		from django.urls import reverse
-		url = reverse('admin:friends_add_member', args=[codes[0]])
-		from django.shortcuts import redirect
-		return redirect(url)
 
-	add_member_action.short_description = 'Add member to selected team'
+		existing_membership = FriendsCode.objects.filter(user=user).first()
+		old_code = existing_membership.code if existing_membership else ''
 
-	def remove_selected_members(self, request, queryset):
-		# queryset already limited to representative records; we need selected pks giving us a team code list
-		codes = list(queryset.values_list('code', flat=True).distinct())
-		removed = 0
-		for code in codes:
-			# Remove all members except one? Requirement: remove persons from a team – we'll delete selected representative teams entirely? Instead, show message.
-			pass
-		self.message_user(request, 'Use the per-team page to remove individual members (feature not implemented).', level='warning')
+		if existing_membership and not move_if_exists and (not team_code or team_code != existing_membership.code):
+			messages.error(
+				request,
+				_('%(email)s already belongs to team %(code)s. Enable "move" to change their team.')
+				% {'email': email, 'code': existing_membership.code},
+			)
+			return
 
-	remove_selected_members.short_description = 'Remove members (placeholder)'
+		new_code = team_code
+		if new_code:
+			existing_team = FriendsCode.objects.filter(code=new_code)
+			if not existing_team.exists():
+				messages.error(request, _('Team %(code)s does not exist. Leave the field blank to create a new team.') % {'code': new_code})
+				return
+			# capacity check (ignore if user already part of target)
+			friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
+			if friends_max_capacity and friends_max_capacity > 0:
+				current_size = existing_team.count()
+				if (not existing_membership or existing_membership.code != new_code) and current_size >= friends_max_capacity:
+					messages.error(request, _('Team %(code)s is already at capacity (%(cap)d).') % {'code': new_code, 'cap': friends_max_capacity})
+					return
+		else:
+			new_code = self._generate_new_code()
 
-	def clear_track_assignment(self, request, queryset):
-		codes = list(queryset.values_list('code', flat=True).distinct())
-		from django.utils import timezone
-		count = FriendsCode.objects.filter(code__in=codes).update(track_assigned='', track_assigned_date=None)
-		self.message_user(request, f'Cleared track assignment for {len(codes)} team(s). (Updated {count} rows)')
+		if existing_membership:
+			if existing_membership.code == new_code:
+				messages.info(request, _('%(email)s is already part of team %(code)s.') % {'email': email, 'code': new_code})
+				return
+			existing_membership.code = new_code
+			existing_membership.save(update_fields=['code'])
+			action = FriendsMembershipLog.ACTION_MOVE
+		else:
+			FriendsCode.objects.create(user=user, code=new_code)
+			action = FriendsMembershipLog.ACTION_ADD
 
-	clear_track_assignment.short_description = 'Clear track assignment for selected team(s)'
-
-	def reset_preferences(self, request, queryset):
-		codes = list(queryset.values_list('code', flat=True).distinct())
-		count = FriendsCode.objects.filter(code__in=codes).update(track_pref_1='', track_pref_2='', track_pref_3='')
-		self.message_user(request, f'Reset track preferences for {len(codes)} team(s). (Updated {count} rows)')
-
-	reset_preferences.short_description = 'Reset track preferences for selected team(s)'
-
-	class AssignTrackForm(forms.Form):
-		track = forms.ChoiceField(choices=[('', '--- Select track ---')] + FriendsCode.TRACKS, required=False, help_text='Leave blank to clear assignment.')
-		apply_to_all = forms.BooleanField(required=False, help_text='Apply to every member record of this team (recommended).')
-
-	def assign_track_view(self, request, code):
-		from django.shortcuts import render, redirect
-		team_exists = FriendsCode.objects.filter(code=code).exists()
-		if not team_exists:
-			messages.error(request, 'Team not found.')
-			return redirect('..')
-		form = self.AssignTrackForm(request.POST or None, initial={'apply_to_all': True})
-		if request.method == 'POST' and form.is_valid():
-			track = form.cleaned_data['track'] or ''
-			apply_all = form.cleaned_data['apply_to_all']
-			qs = FriendsCode.objects.filter(code=code)
-			from django.utils import timezone
-			if track:
-				qs.update(track_assigned=track, track_assigned_date=timezone.now())
-				self.message_user(request, f'Track {track} assigned to team {code}.')
-			else:
-				qs.update(track_assigned='', track_assigned_date=None)
-				self.message_user(request, f'Track assignment cleared for team {code}.')
-			return redirect('../../')
-		context = dict(
-			self.admin_site.each_context(request),
-			form=form,
-			team_code=code,
-			title=f'Assign/Clear Track for team {code}'
+		FriendsMembershipLog.objects.create(
+			admin_user=request.user,
+			affected_user=user,
+			action=action,
+			from_code=old_code,
+			to_code=new_code,
 		)
-		return render(request, 'admin/friends/assign_track.html', context)
 
-	# ===================== GROUP METRIC / UTILITY METHODS (moved back into FriendsCodeAdmin) =====================
+		self._sync_merge_entries({code for code in [old_code, new_code] if code})
+		messages.success(request, _('%(email)s is now in team %(code)s.') % {'email': email, 'code': new_code})
 
-	def export_csv(self, request, queryset):
-		# Aggregate unique codes
-		codes = list(queryset.values_list('code', flat=True).distinct())
-		edition = Edition.get_default_edition()
-		response = HttpResponse(content_type='text/csv')
-		response['Content-Disposition'] = 'attachment; filename=friends_groups.csv'
-		writer = csv.writer(response)
-		writer.writerow(['code', 'members', 'capacity', 'pending', 'invited', 'confirmed', 'devpost', 'members_emails'])
-		for code in codes:
-			members = FriendsCode.objects.filter(code=code).select_related('user')
-			members_count = members.count()
-			devpost = members.exclude(devpost_url__isnull=True).exclude(devpost_url__exact='')\
-				.values_list('devpost_url', flat=True).first() or ''
-			apps = Application.objects.filter(user__friendscode__code=code, edition=edition)
-			pending = apps.filter(status=Application.STATUS_PENDING).count()
-			invited = apps.filter(status=Application.STATUS_INVITED).count()
-			confirmed = apps.filter(status=Application.STATUS_CONFIRMED).count()
-			emails = ';'.join([m.user.email for m in members])
-			writer.writerow([code, members_count, getattr(settings, 'FRIENDS_MAX_CAPACITY', None) or '',
-						 	 pending, invited, confirmed, devpost, emails])
-		return response
+	def _handle_remove(self, request, cleaned_data):
+		User = get_user_model()
+		email = cleaned_data['email'].lower()
+		user = User.objects.filter(email__iexact=email).first()
+		if user is None:
+			messages.error(request, _('No user with email %(email)s was found.') % {'email': email})
+			return
 
-	export_csv.short_description = 'Export selected groups to CSV'
+		existing_membership = FriendsCode.objects.filter(user=user).first()
+		if existing_membership is None:
+			messages.error(request, _('%(email)s is not currently assigned to a team.') % {'email': email})
+			return
 
-	def open_invite_view(self, request, queryset):
-		codes = list(queryset.values_list('code', flat=True).distinct())
-		from django.shortcuts import redirect
-		if len(codes) != 1:
-			self.message_user(request, 'Please select exactly one group to open the invite view.', level='error')
-			return None
-		url = f"/friends/invite/?code={codes[0]}"
-		return redirect(url)
+		old_code = existing_membership.code
+		existing_membership.delete()
+		FriendsMembershipLog.objects.create(
+			admin_user=request.user,
+			affected_user=user,
+			action=FriendsMembershipLog.ACTION_REMOVE,
+			from_code=old_code,
+		)
+		self._sync_merge_entries({old_code})
+		messages.success(request, _('%(email)s has been removed from team %(code)s.') % {'email': email, 'code': old_code})
 
-	open_invite_view.short_description = 'Open Invite friends view for selected group'
+	def _generate_new_code(self):
+		while True:
+			code = get_random_string()
+			if not FriendsCode.objects.filter(code=code).exists():
+				return code
 
-	def get_queryset(self, request):
-		qs = super().get_queryset(request)
-		# Limit to one row per code (representative record)
-		if getattr(connection.features, 'supports_distinct_on', False):
-			return qs.order_by('code').distinct('code')
-		# Fallback for backends without DISTINCT ON
-		seen = set()
-		ids = []
-		for pk, code in qs.values_list('pk', 'code').order_by('code'):
-			if code in seen:
+	def _sync_merge_entries(self, team_codes):
+		from friends.matchmaking import MatchmakingService
+		for code in team_codes:
+			entries = FriendsMergePoolEntry.objects.filter(team_code=code)
+			if not entries.exists():
 				continue
-			seen.add(code)
-			ids.append(pk)
-		return qs.filter(pk__in=ids)
-
-	def _edition(self):
-		return Edition.get_default_edition()
-
-	def _group_qs(self, obj):
-		return FriendsCode.objects.filter(code=obj.code)
-
-	def members_count(self, obj):
-		return self._group_qs(obj).count()
-
-	members_count.short_description = 'Members'
-
-	def capacity(self, obj):
-		return getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
-
-	def _apps(self, obj):
-		return Application.objects.filter(user__friendscode__code=obj.code, edition=self._edition())
-
-	def pending_count(self, obj):
-		return self._apps(obj).filter(status=Application.STATUS_PENDING).count()
-
-	pending_count.short_description = 'Pending'
-
-	def invited_count(self, obj):
-		return self._apps(obj).filter(status=Application.STATUS_INVITED).count()
-
-	invited_count.short_description = 'Invited'
-
-	def confirmed_count(self, obj):
-		return self._apps(obj).filter(status=Application.STATUS_CONFIRMED).count()
-
-	confirmed_count.short_description = 'Confirmed'
-
-	def devpost_link(self, obj):
-		# Use the first non-empty url in the group
-		url = self._group_qs(obj).exclude(devpost_url__isnull=True).exclude(devpost_url__exact='')\
-			.values_list('devpost_url', flat=True).first()
-		if not url:
-			return '-'
-		return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>', url, url)
-
-	devpost_link.short_description = 'Devpost'
-
-	def members_list(self, obj):
-		members = self._group_qs(obj).select_related('user')
-		items = []
-		for fc in members:
-			items.append(f"{fc.user.get_full_name()} ({fc.user.email})")
-		if not items:
-			return '-'
-		return format_html('<ul style="margin:0;padding-left:16px">{}</ul>',
-					   format_html(''.join(f'<li>{item}</li>' for item in items)))
-
-	members_list.short_description = 'Members'
-
-	def get_list_display(self, request):
-		return super().get_list_display(request)
-
-	def get_search_results(self, request, queryset, search_term):
-		qs, use_distinct = super().get_search_results(request, queryset, search_term)
-		return qs, use_distinct
-
-	def save_model(self, request, obj, form, change):
-		# Save base object first
-		super().save_model(request, obj, form, change)
-		# Propagate Devpost URL and track assignment changes to all rows with same code
-		update_fields = {'devpost_url': obj.devpost_url}
-		if 'track_assigned' in form.changed_data:
-			from django.utils import timezone
-			if obj.track_assigned:
-				update_fields['track_assigned'] = obj.track_assigned
-				update_fields['track_assigned_date'] = timezone.now()
-			else:
-				# Clearing track: blank out date too
-				update_fields['track_assigned'] = ''
-				update_fields['track_assigned_date'] = None
-		FriendsCode.objects.filter(code=obj.code).update(**update_fields)
+			for entry in entries:
+				member_count = MatchmakingService._team_member_count(code, entry.edition)
+				fields = ['member_count', 'updated_at']
+				entry.member_count = member_count
+				entry.updated_at = timezone.now()
+				if member_count == 0 and entry.status == FriendsMergePoolEntry.STATUS_PENDING:
+					entry.status = FriendsMergePoolEntry.STATUS_REMOVED
+					entry.matched_team_code = ''
+					entry.matched_at = None
+					fields.extend(['status', 'matched_team_code', 'matched_at'])
+					FriendsMergeEventLog.objects.create(
+						entry=entry,
+						event_type=FriendsMergeEventLog.EVENT_REMOVED,
+						message='Removed after admin membership change.',
+					)
+					FriendsCode.objects.filter(code=code).update(seeking_merge=False)
+				entry.save(update_fields=fields)
 
 
 @admin.register(FriendsMembershipLog)
 class FriendsMembershipLogAdmin(admin.ModelAdmin):
-	list_display = ('timestamp', 'admin_user', 'affected_user', 'action', 'from_code', 'to_code')
-	list_filter = ('action', 'admin_user')
+	list_display = ('timestamp', 'affected_user', 'action', 'from_code', 'to_code', 'admin_user')
+	list_filter = ('action',)
 	search_fields = ('affected_user__email', 'from_code', 'to_code')
-	readonly_fields = ('timestamp', 'admin_user', 'affected_user', 'action', 'from_code', 'to_code')
-	def has_add_permission(self, request):
-		return False
-	def has_change_permission(self, request, obj=None):
-		return False
-	def has_delete_permission(self, request, obj=None):
-		return False
+	readonly_fields = ('timestamp',)
 
-	class MembersSizeFilter(admin.SimpleListFilter):
-		title = 'Members size'
-		parameter_name = 'members_size'
 
-		def lookups(self, request, model_admin):
-			cap = getattr(settings, 'FRIENDS_MAX_CAPACITY', 4) or 4
-			return [(str(i), str(i)) for i in range(1, cap + 1)]
+@admin.register(FriendsMergeEventLog)
+class FriendsMergeEventLogAdmin(admin.ModelAdmin):
+	list_display = ('created_at', 'entry', 'event_type', 'actor')
+	list_filter = ('event_type',)
+	search_fields = ('entry__team_code', 'actor__email')
+	readonly_fields = ('created_at',)
 
-		def queryset(self, request, queryset):
-			value = self.value()
-			if not value:
-				return queryset
-			try:
-				size = int(value)
-			except ValueError:
-				return queryset
-			codes = FriendsCode.objects.values('code').annotate(cnt=Count('id')).filter(cnt=size).values_list('code', flat=True)
-			return queryset.filter(code__in=list(codes))
 
-	class HasDevpostFilter(admin.SimpleListFilter):
-		title = 'Has Devpost'
-		parameter_name = 'has_devpost'
+@admin.register(FriendsMergePoolEntry)
+class FriendsMergePoolEntryAdmin(admin.ModelAdmin):
+	list_display = ('team_code', 'edition', 'member_count', 'status', 'trigger', 'matched_team_code', 'created_at')
+	list_filter = ('status', 'trigger', 'edition')
+	search_fields = ('team_code', 'matched_team_code')
+	readonly_fields = ('created_at', 'updated_at', 'matched_at')
+	actions = ('merge_selected', 'remove_from_pool')
+	change_list_template = 'admin/friends/friendsmergepoolentry/change_list.html'
 
-		def lookups(self, request, model_admin):
-			return [('yes', 'Yes'), ('no', 'No')]
+	def get_urls(self):
+		urls = super().get_urls()
+		custom_urls = [
+			path(
+				'matchmaking-control/',
+				self.admin_site.admin_view(self.matchmaking_view),
+				name='friends_friendsmergepoolentry_matchmaking',
+			),
+		]
+		return custom_urls + urls
 
-		def queryset(self, request, queryset):
-			value = self.value()
-			if value == 'yes':
-				codes = FriendsCode.objects.exclude(devpost_url__isnull=True).exclude(devpost_url__exact='')\
-					.values_list('code', flat=True).distinct()
-				return queryset.filter(code__in=list(codes))
-			if value == 'no':
-				codes = FriendsCode.objects.exclude(devpost_url__isnull=True).exclude(devpost_url__exact='')\
-					.values_list('code', flat=True).distinct()
-				return queryset.exclude(code__in=list(codes))
-			return queryset
+	def changelist_view(self, request, extra_context=None):
+		extra_context = extra_context or {}
+		extra_context['matchmaking_url'] = reverse('admin:friends_friendsmergepoolentry_matchmaking')
+		return super().changelist_view(request, extra_context=extra_context)
 
-	class AnyInvitedConfirmedFilter(admin.SimpleListFilter):
-		title = 'Any invited/confirmed'
-		parameter_name = 'has_invited_confirmed'
+	def matchmaking_view(self, request):
+		default_edition = None
+		try:
+			default_edition = MatchmakingService.get_edition()
+		except Exception:
+			default_edition = None
+		invite_initial = {'edition': default_edition.pk} if default_edition else {}
+		match_initial = {'edition': default_edition.pk} if default_edition else {}
+		invite_form = MatchmakingInviteForm(prefix='invite', initial=invite_initial)
+		match_form = MatchmakingRunForm(prefix='match', initial=match_initial)
+		invite_preview = None
+		match_preview = None
 
-		def lookups(self, request, model_admin):
-			return [('yes', 'Yes'), ('no', 'No')]
+		if request.method == 'POST':
+			if 'invite-preview' in request.POST or 'invite-send' in request.POST:
+				action = 'preview' if 'invite-preview' in request.POST else 'send'
+				invite_form = MatchmakingInviteForm(request.POST, prefix='invite', initial=invite_initial)
+				if invite_form.is_valid():
+					try:
+						edition = invite_form.cleaned_data['edition'] or MatchmakingService.get_edition()
+						limit = invite_form.cleaned_data['limit']
+						resend = invite_form.cleaned_data['resend']
+						preview_email = invite_form.cleaned_data['preview_email']
+						invites = MatchmakingService.gather_invite_targets(edition, include_existing=resend)
+						if limit:
+							invites = invites[:limit]
+						if not invites:
+							self.message_user(request, _('No eligible teams or solo applicants found.'), level=messages.WARNING)
+						else:
+							if preview_email:
+								sample_invite = invites[0]
+								MatchmakingService.send_invite(sample_invite, dry_run=False, override_emails=[preview_email])
+								self.message_user(
+									request,
+									_('Preview invite sent to %(email)s using team %(team)s.') % {
+										'email': preview_email,
+										'team': sample_invite.team_code or _('solo applicant'),
+									},
+									level=messages.SUCCESS,
+								)
+							if action == 'preview':
+								invite_preview = self._build_invite_preview(invites)
+							else:
+								sent = 0
+								for invite in invites:
+									MatchmakingService.send_invite(invite)
+									sent += 1
+								self.message_user(
+									request,
+									_('%(count)s invite(s) queued for delivery.') % {'count': sent},
+									level=messages.SUCCESS,
+								)
+								return HttpResponseRedirect(request.path)
+					except Exception as exc:
+						self.message_user(request, _('Invite run failed: %(error)s') % {'error': exc}, level=messages.ERROR)
+			elif 'match-preview' in request.POST:
+				match_form = MatchmakingRunForm(request.POST, prefix='match', initial=match_initial)
+				if match_form.is_valid():
+					try:
+						edition = match_form.cleaned_data['edition'] or MatchmakingService.get_edition()
+						allow_size_three = match_form.cleaned_data['allow_size_three']
+						trigger = match_form.cleaned_data['trigger']
+						preview_data = MatchmakingService.build_match_preview(
+							edition,
+							allow_size_three=allow_size_three,
+							trigger=trigger,
+						)
+						if preview_data:
+							match_preview = preview_data
+						else:
+							self.message_user(
+								request,
+								_('No eligible matches are ready yet, so there is nothing to preview.'),
+								level=messages.INFO,
+							)
+					except Exception as exc:
+						self.message_user(request, _('Match preview failed: %(error)s') % {'error': exc}, level=messages.ERROR)
+			elif 'match-submit' in request.POST:
+				match_form = MatchmakingRunForm(request.POST, prefix='match', initial=match_initial)
+				if match_form.is_valid():
+					try:
+						edition = match_form.cleaned_data['edition'] or MatchmakingService.get_edition()
+						allow_size_three = match_form.cleaned_data['allow_size_three']
+						trigger = match_form.cleaned_data['trigger']
+						results = MatchmakingService.run_matching(
+							edition,
+							allow_size_three=allow_size_three,
+							trigger=trigger,
+						)
+						if results:
+							summary = ', '.join(
+								f"{result.team_code} ({len(result.member_ids)} hackers)" for result in results[:5]
+							)
+							if len(results) > 5:
+								summary += _(' (and %(count)s more merges)') % {'count': len(results) - 5}
+							self.message_user(
+								request,
+								_('Matching run merged %(count)s group(s): %(summary)s') % {
+									'count': len(results),
+									'summary': summary,
+								},
+								level=messages.SUCCESS,
+							)
+						else:
+							self.message_user(request, _('No matches were formed.'), level=messages.INFO)
+					except Exception as exc:
+						self.message_user(request, _('Matching run failed: %(error)s') % {'error': exc}, level=messages.ERROR)
+					return HttpResponseRedirect(request.path)
 
-		def queryset(self, request, queryset):
-			value = self.value()
-			if not value:
-				return queryset
-			edition = Edition.get_default_edition()
-			codes = Application.objects.filter(
-				user__friendscode__code__isnull=False,
-				edition=edition,
-				status__in=[Application.STATUS_INVITED, Application.STATUS_CONFIRMED]
-			).values_list('user__friendscode__code', flat=True).distinct()
-			if value == 'yes':
-				return queryset.filter(code__in=list(codes))
-			else:
-				return queryset.exclude(code__in=list(codes))
+		context = dict(
+			self.admin_site.each_context(request),
+			title=_('Matchmaking controls'),
+			invite_form=invite_form,
+			match_form=match_form,
+			invite_preview=invite_preview,
+			match_preview=match_preview,
+		)
+		return TemplateResponse(request, 'admin/friends/matchmaking_dashboard.html', context)
 
-	def export_csv(self, request, queryset):
-		# Aggregate unique codes
-		codes = list(queryset.values_list('code', flat=True).distinct())
-		edition = Edition.get_default_edition()
-		response = HttpResponse(content_type='text/csv')
-		response['Content-Disposition'] = 'attachment; filename=friends_groups.csv'
-		writer = csv.writer(response)
-		writer.writerow(['code', 'members', 'capacity', 'pending', 'invited', 'confirmed', 'devpost', 'members_emails'])
-		for code in codes:
-			members = FriendsCode.objects.filter(code=code).select_related('user')
-			members_count = members.count()
-			devpost = members.exclude(devpost_url__isnull=True).exclude(devpost_url__exact='')\
-				.values_list('devpost_url', flat=True).first() or ''
-			apps = Application.objects.filter(user__friendscode__code=code, edition=edition)
-			pending = apps.filter(status=Application.STATUS_PENDING).count()
-			invited = apps.filter(status=Application.STATUS_INVITED).count()
-			confirmed = apps.filter(status=Application.STATUS_CONFIRMED).count()
+	def _build_invite_preview(self, invites):
+		display_limit = 25
+		groups = []
+		total_recipients = 0
+		for index, invite in enumerate(invites):
+			members = []
+			for app in invite.members:
+				name = MatchmakingService._member_display_name(app)
+				email = getattr(app.user, 'email', '')
+				if email:
+					total_recipients += 1
+				members.append({'name': name, 'email': email})
+			if index < display_limit:
+				team_label = invite.team_code
+				if not team_label:
+					first_member = invite.members[0] if invite.members else None
+					if first_member:
+						team_label = _('Solo – %(name)s') % {'name': MatchmakingService._member_display_name(first_member)}
+					else:
+						team_label = _('Solo applicant')
+				groups.append({
+					'team_label': team_label,
+					'member_count': len(invite.members),
+					'members': members,
+				})
+		sample_email = None
+		for invite in invites:
+			for app in invite.members:
+				target_email = getattr(app.user, 'email', '')
+				if not target_email:
+					continue
+				email_obj = MatchmakingService.build_invite_email(
+					invite,
+					app,
+					override_email=target_email,
+					override_recipient_name=MatchmakingService._member_display_name(app),
+				)
+				if email_obj:
+					sample_email = {
+						'subject': email_obj.subject.strip(),
+						'html': email_obj.html_message,
+						'recipient': target_email,
+						'recipient_name': MatchmakingService._member_display_name(app),
+					}
+					break
+			if sample_email:
+				break
+		return {
+			'total_groups': len(invites),
+			'displayed_groups': len(groups),
+			'hidden_group_count': max(len(invites) - display_limit, 0),
+			'total_recipients': total_recipients,
+			'recipient_groups': groups,
+			'sample_email': sample_email,
+			'display_limit': display_limit,
+		}
+
+	def merge_selected(self, request, queryset):
+		entries = list(queryset.select_related('edition'))
+		if not entries:
+			self.message_user(request, 'Select at least one entry to merge.', level=messages.ERROR)
+			return
+		edition_ids = {entry.edition_id for entry in entries}
+		if len(edition_ids) > 1:
+			self.message_user(request, 'Please select entries from the same edition.', level=messages.ERROR)
+			return
+		total = sum(entry.member_count for entry in entries)
+		if total < 3 or total > MatchmakingService.TARGET_TEAM_SIZE:
+			self.message_user(request, 'Manual merges must total between 3 and 4 members.', level=messages.ERROR)
+			return
+		edition = entries[0].edition
+		with transaction.atomic():
+			result = MatchmakingService._merge_entries(entries, edition, FriendsMergePoolEntry.TRIGGER_MANUAL)  # type: ignore[attr-defined]
+		if result:
+			self.message_user(request, f'Merged into team {result.team_code}.', level=messages.SUCCESS)
+		else:
+			self.message_user(request, 'Merge aborted: one or more teams are no longer eligible.', level=messages.WARNING)
+
+	merge_selected.short_description = 'Merge selected entries'
+
+	def remove_from_pool(self, request, queryset):
+		count = 0
+		with transaction.atomic():
+			for entry in queryset:
+				entry.status = FriendsMergePoolEntry.STATUS_REMOVED
+				entry.updated_at = timezone.now()
+				entry.save(update_fields=['status', 'updated_at'])
+				FriendsCode.objects.filter(code=entry.team_code).update(seeking_merge=False, seeking_merge_updated_at=timezone.now())
+				FriendsMergeEventLog.objects.create(
+					entry=entry,
+					event_type=FriendsMergeEventLog.EVENT_REMOVED,
+					message='Removed manually from admin.',
+					actor=request.user,
+				)
+				count += 1
+		self.message_user(request, f'Removed {count} entr{"y" if count == 1 else "ies"} from the pool.', level=messages.SUCCESS)
+
+	remove_from_pool.short_description = 'Remove from pool (and reset seeking flag)'

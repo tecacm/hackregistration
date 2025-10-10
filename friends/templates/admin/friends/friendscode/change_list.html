@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block object-tools-items %}
+    {% if membership_url %}
+        <li>
+            <a href="{{ membership_url }}" class="button">{% trans "Manage team members" %}</a>
+        </li>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}

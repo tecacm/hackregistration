@@ -1,0 +1,42 @@
+{% extends 'mails/base.html' %}
+{% load i18n %}
+{% block content %}
+
+			<p style="margin:0 0 16px;">{% blocktrans with name=recipient_name %}Hi {{ name }},{% endblocktrans %}</p>
+
+			<p style="margin:0 0 16px;">
+				{% blocktrans with event=edition.name %}
+				You're receiving this because your {{ event }} application is part of our HackMTY community, and your team let us know you'd like help filling the remaining seats.
+				{% endblocktrans %}
+			</p>
+
+			{% if member_details %}
+				<p style="margin:0 0 12px;">Here’s who we currently have on file:</p>
+				<ul style="margin:0 0 18px;padding-left:18px;font-family:sans-serif;font-size:14px;list-style-position:outside;">
+				{% for member in member_details %}
+					<li>{{ member.name }}{% if member.email %} &mdash; <a href="mailto:{{ member.email }}">{{ member.email }}</a>{% endif %}</li>
+				{% endfor %}
+				</ul>
+			{% endif %}
+
+			<p style="margin:0 0 16px;">
+				If at least one teammate is comfortable merging, click the button below and we'll add your {{ team_size }}-person group{% if team_code %} (code <strong>{{ team_code }}</strong>){% endif %} to the matchmaking pool. One teammate's confirmation covers the whole squad.
+			</p>
+
+			{% translate "Count us in for matchmaking" as matchmaking_cta %}
+			{% include 'mails/components/button.html' with url=accept_url text=matchmaking_cta suppress_fallback=True %}
+
+			<p style="margin:0 0 16px;">We'll keep the form open until <strong>{{ deadline }}</strong>. As soon as we find a compatible match, we'll send an intro email with everyone’s contact details so you can plan your project together right away.</p>
+
+			<p style="margin:0 0 16px; word-break:break-word; overflow-wrap:anywhere;">
+				{% trans "If the link does not work" %}:<br>
+				<a href="{{ accept_url }}" style="color:#c3aff1;">{{ accept_url }}</a>
+			</p>
+
+			<p style="margin:0 0 16px;">If you're already set with a full team or this message feels off, just ignore it or let us know at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+
+			<p style="margin:0 0 16px;">Stay plugged into the community—our Discord and social channels are linked below whenever you need to reach us or share updates.</p>
+
+			<p style="margin:24px 0 0;">Happy hacking!<br>The {{ edition.name }} organizers</p>
+
+{% endblock %}

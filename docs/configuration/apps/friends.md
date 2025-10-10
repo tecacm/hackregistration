@@ -9,6 +9,7 @@ in order to invite all the friends.
 - Invite with a group by friends group that shows how many of them are already invited.
 - Limitation of friends group configurable.
 - Team closed when one of their team is invited.
+- Team matchmaking pool so small teams/solos can opt in and be paired to reach four hackers.
 
 ## Configuration
 

@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block object-tools-items %}
+    {% if matchmaking_url %}
+        <li>
+            <a href="{{ matchmaking_url }}" class="button">{% trans "Matchmaking controls" %}</a>
+        </li>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}

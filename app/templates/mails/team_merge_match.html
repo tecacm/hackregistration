@@ -1,0 +1,34 @@
+<div id="email-content">
+  <p>Great news! We've matched your team under code <strong>{{ team_code }}</strong>. Here's the roster so you can get in touch right away:</p>
+  <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+    <thead>
+      <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Name</th>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Email</th>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Phone</th>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">University</th>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Degree</th>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Country</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for member in members %}
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ member.name }}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="mailto:{{ member.email }}">{{ member.email }}</a></td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ member.phone|default:'—' }}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ member.university|default:'—' }}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ member.degree|default:'—' }}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ member.country|default:'—' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>
+    Reach out, introduce yourselves, and make a plan. Feel free to loop us in if you need facilitator support—we're here to help your new team shine.
+  </p>
+  <div id="socials-content">
+    Happy hacking!<br>
+    The {{ edition.name }} Team
+  </div>
+</div>

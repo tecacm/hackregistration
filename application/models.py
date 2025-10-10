@@ -47,17 +47,16 @@ class Edition(models.Model):
         return '%s - %s' % (self.order, self.name)
 
     @classmethod
-    @full_cache
-    def get_default_edition(cls):
-        return Edition.objects.order_by('-order').first().pk
+    def get_default_edition(cls, force_update: bool = False):
+        pk = cls.objects.order_by('-order').values_list('pk', flat=True).first()
+        if pk is None:
+            raise cls.DoesNotExist('No editions are configured.')
+        return pk
 
     @classmethod
-    @full_cache
-    def get_last_edition(cls):
-        try:
-            return Edition.objects.order_by('-order')[1].pk
-        except IndexError:
-            return None
+    def get_last_edition(cls, force_update: bool = False):
+        pks = list(cls.objects.order_by('-order').values_list('pk', flat=True)[:2])
+        return pks[1] if len(pks) > 1 else None
 
 
 class ApplicationTypeConfig(models.Model):
@@ -294,6 +293,8 @@ class Application(models.Model):
 
     objects = ApplicationQueryset.as_manager()
 
+    SCHOOL_FIELD_KEYS = ('university', 'school', 'college', 'institution')
+
     @property
     def form_data(self):
         result = {}
@@ -351,6 +352,16 @@ class Application(models.Model):
         if self.user is not None:
             return self.user.get_full_name()
         return self.form_data.get('full_name', '')
+
+    def get_school_name(self) -> str:
+        data = self.form_data
+        for key in self.SCHOOL_FIELD_KEYS:
+            value = data.get(key)
+            if isinstance(value, str):
+                trimmed = value.strip()
+                if trimmed:
+                    return trimmed
+        return ''
 
     def to_dict(self):
         instance_dict = {x: y for x, y in self.__dict__.items() if x not in ['_state', 'data']}

@@ -1,8 +1,12 @@
+import csv
+import time
+
 from django import forms
 from django.conf import settings
-import time
 from django.contrib import admin
+from django.http import HttpResponse
 from django.template.response import TemplateResponse
+from django.urls import path
 from django.utils.http import urlencode
 from django.utils.translation import gettext_lazy as _
 from django.db.models import Count, Q, F
@@ -10,9 +14,45 @@ from django.db.models import Count, Q, F
 from application import models
 from app.emails import Email, EmailList
 from friends.models import FriendsCode
+from django.utils.text import slugify
+
+
+class UniversityRosterForm(forms.Form):
+    edition = forms.ModelChoiceField(
+        queryset=models.Edition.objects.order_by('-order'),
+        required=False,
+        label=_('Edition'),
+        help_text=_('Defaults to the current edition when left blank.'),
+    )
+    application_type = forms.ModelChoiceField(
+        queryset=models.ApplicationTypeConfig.objects.order_by('name'),
+        required=False,
+        label=_('Application type'),
+        help_text=_('Filter to a specific participant type.'),
+    )
+    school = forms.CharField(
+        max_length=300,
+        required=True,
+        label=_('School / University'),
+        help_text=_('Case-insensitive match; partial names are accepted.'),
+    )
+    statuses = forms.MultipleChoiceField(
+        required=False,
+        choices=models.Application.STATUS,
+        label=_('Statuses'),
+        widget=forms.CheckboxSelectMultiple,
+        initial=[
+            models.Application.STATUS_CONFIRMED,
+            models.Application.STATUS_ATTENDED,
+            models.Application.STATUS_INVITED,
+            models.Application.STATUS_LAST_REMINDER,
+        ],
+        help_text=_('Restrict results to these statuses. Leave empty to include every status.'),
+    )
 
 
 class ApplicationAdmin(admin.ModelAdmin):
+    change_list_template = 'admin/application/application/change_list.html'
     list_filter = ('type', 'edition')
     search_fields = ('user__email', 'user__first_name', 'user__last_name')
     actions = ('email_team_segments',)
@@ -235,6 +275,103 @@ class ApplicationAdmin(admin.ModelAdmin):
         return TemplateResponse(request, 'admin/application/email_team_segments.html', context)
 
     email_team_segments.short_description = _('Send email to small/no-team applicants…')
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                'university-roster/',
+                self.admin_site.admin_view(self.university_roster_view),
+                name='application_application_university_roster',
+            ),
+        ]
+        return custom + urls
+
+    def university_roster_view(self, request):
+        default_edition = None
+        try:
+            default_edition = models.Edition.objects.get(pk=models.Edition.get_default_edition())
+        except models.Edition.DoesNotExist:
+            default_edition = None
+
+        initial = {}
+        if default_edition:
+            initial['edition'] = default_edition
+
+        bound = request.GET.get('school') is not None or request.GET.get('download') == '1'
+        if bound:
+            form = UniversityRosterForm(request.GET, initial=initial)
+        else:
+            form = UniversityRosterForm(initial=initial)
+
+        roster = []
+        school_query = ''
+        status_counts = {}
+        total = 0
+        if bound and form.is_valid():
+            edition = form.cleaned_data['edition'] or default_edition
+            app_type = form.cleaned_data['application_type']
+            school_query = form.cleaned_data['school'].strip()
+            statuses = form.cleaned_data['statuses']
+            qs = models.Application.objects.all().select_related('user').order_by('user__first_name', 'user__last_name', 'user__email')
+            if edition:
+                qs = qs.filter(edition=edition)
+            if app_type:
+                qs = qs.filter(type=app_type)
+            if statuses:
+                qs = qs.filter(status__in=statuses)
+
+            school_norm = school_query.lower()
+            entries = []
+            for app in qs:
+                school_name = app.get_school_name()
+                if not school_name:
+                    continue
+                if school_norm not in school_name.lower():
+                    continue
+                full_name = (app.get_full_name() or app.user.get_full_name() or '').strip()
+                if not full_name:
+                    full_name = app.user.email or _('Unknown')
+                email = app.user.email or ''
+                entries.append({
+                    'name': full_name,
+                    'email': email,
+                    'status': app.get_status_display(),
+                    'school': school_name,
+                })
+
+            entries.sort(key=lambda item: (item['name'].lower(), item['email']))
+            roster = entries
+            total = len(roster)
+            if roster:
+                from collections import Counter
+                counts = Counter(entry['status'] for entry in roster)
+                status_counts = sorted(counts.items(), key=lambda item: item[0])
+            else:
+                status_counts = []
+
+            if request.GET.get('download') == '1' and roster:
+                filename = f"university-roster-{slugify(school_query) or 'export'}.csv"
+                response = HttpResponse(content_type='text/csv; charset=utf-8')
+                response['Content-Disposition'] = f'attachment; filename={filename}'
+                response.write('\ufeff')
+                writer = csv.writer(response, lineterminator='\n')
+                writer.writerow(['Full name', 'Email', 'Status', 'School'])
+                for row in roster:
+                    writer.writerow([row['name'], row['email'], row['status'], row['school']])
+                return response
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title=_('University roster lookup'),
+            form=form,
+            roster=roster,
+            school_query=school_query,
+            status_breakdown=status_counts,
+            total=total,
+            filters_applied=bound and form.is_valid(),
+        )
+        return TemplateResponse(request, 'admin/application/university_roster.html', context)
 
 
 class ApplicationTypeConfigAdminForm(forms.ModelForm):

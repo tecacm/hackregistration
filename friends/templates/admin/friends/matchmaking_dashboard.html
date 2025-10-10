@@ -1,0 +1,182 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' 'friends' %}">{% trans 'Friends' %}</a>
+    &rsaquo; <a href="{% url 'admin:friends_friendsmergepoolentry_changelist' %}">{% trans 'Friends merge pool entries' %}</a>
+    &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="module">
+    <h2>{% trans "Send opt-in invitations" %}</h2>
+        <p class="help">{% trans "Use this form to preview or send the matchmaking opt-in campaign." %}</p>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {{ invite_form.non_field_errors }}
+            <fieldset class="module aligned">
+                <div class="form-row">
+                    <label for="id_invite-edition">{{ invite_form.edition.label }}:</label>
+                    {{ invite_form.edition }}
+                    {% if invite_form.edition.help_text %}<p class="help">{{ invite_form.edition.help_text }}</p>{% endif %}
+                    {{ invite_form.edition.errors }}
+                </div>
+                <div class="form-row">
+                    <label for="id_invite-limit">{{ invite_form.limit.label }}:</label>
+                    {{ invite_form.limit }}
+                    {% if invite_form.limit.help_text %}<p class="help">{{ invite_form.limit.help_text }}</p>{% endif %}
+                    {{ invite_form.limit.errors }}
+                </div>
+                <div class="form-row">
+                    <label for="id_invite-resend">{{ invite_form.resend.label }}:</label>
+                    {{ invite_form.resend }}
+                    {% if invite_form.resend.help_text %}<p class="help">{{ invite_form.resend.help_text }}</p>{% endif %}
+                    {{ invite_form.resend.errors }}
+                </div>
+                <div class="form-row">
+                    <label for="id_invite-preview_email">{{ invite_form.preview_email.label }}:</label>
+                    {{ invite_form.preview_email }}
+                    {% if invite_form.preview_email.help_text %}<p class="help">{{ invite_form.preview_email.help_text }}</p>{% endif %}
+                    {{ invite_form.preview_email.errors }}
+                </div>
+            </fieldset>
+            <div class="submit-row">
+                <button type="submit" name="invite-preview" value="1" class="button">{% trans "Preview run" %}</button>
+                <button type="submit" name="invite-send" value="1" class="button default">{% trans "Send invites" %}</button>
+            </div>
+        </form>
+</div>
+
+    {% if invite_preview %}
+        <div class="module">
+            <h2>{% blocktrans with count=invite_preview.total_recipients %}Preview recipients ({{ count }}){% endblocktrans %}</h2>
+            <p class="help">
+                {% if invite_preview.hidden_group_count %}
+                    {% blocktrans with shown=invite_preview.displayed_groups total=invite_preview.total_groups hidden=invite_preview.hidden_group_count limit=invite_preview.display_limit %}
+                    Showing the first {{ shown }} group(s) out of {{ total }} ({{ hidden }} hidden beyond the preview limit of {{ limit }}).
+                    {% endblocktrans %}
+                {% else %}
+                    {% blocktrans with total=invite_preview.total_groups %}Showing all {{ total }} group(s).{% endblocktrans %}
+                {% endif %}
+            </p>
+            <table class="invite-preview" style="width:100%; border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Team / solo" %}</th>
+                        <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Recipients" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for group in invite_preview.recipient_groups %}
+                    <tr>
+                        <td style="padding:8px; border-bottom:1px solid #222; vertical-align:top;">
+                            <strong>{{ group.team_label }}</strong><br>
+                            <small>{% blocktrans with count=group.member_count %}{{ count }} member(s){% endblocktrans %}</small>
+                        </td>
+                        <td style="padding:8px; border-bottom:1px solid #222;">
+                            <ul style="margin:0; padding-left:18px;">
+                            {% for member in group.members %}
+                                <li>
+                                    {{ member.name }}
+                                    {% if member.email %}
+                                        — <a href="mailto:{{ member.email }}">{{ member.email }}</a>
+                                    {% else %}
+                                        <span class="help">({% trans "no email on file" %})</span>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                            </ul>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% if invite_preview.sample_email %}
+                <hr>
+                <h3>{% trans "Email preview" %}</h3>
+                <p><strong>{% trans "Subject" %}:</strong> {{ invite_preview.sample_email.subject }}</p>
+                <p><strong>{% trans "Sample recipient" %}:</strong> {{ invite_preview.sample_email.recipient_name }} ({{ invite_preview.sample_email.recipient }})</p>
+                <div style="border:1px solid #333; padding:12px; background:#0f0f0f; margin-top:12px;">
+                    {{ invite_preview.sample_email.html|safe }}
+                </div>
+            {% else %}
+                <p class="help">{% trans "No email preview is available because none of the recipients have an email address on file." %}</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
+<div class="module">
+    <h2>{% trans "Run automatic matching" %}</h2>
+    <p class="help">{% trans "Group eligible pool entries into full teams and notify them." %}</p>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ match_form.as_p }}
+        <div class="submit-row">
+            <button type="submit" name="match-preview" class="button">{% trans "Preview match email" %}</button>
+            <button type="submit" name="match-submit" class="button default">{% trans "Run matching" %}</button>
+        </div>
+    </form>
+</div>
+
+{% if match_preview %}
+    <div class="module">
+        <h2>{% trans "Match email preview" %}</h2>
+        <p class="help">
+            {% blocktrans with codes=match_preview.group_codes|join:', ' host=match_preview.host_code contacts=match_preview.contact_count %}
+                Previewing the team merge email that will be sent when groups {{ codes }} merge under host team {{ host }} ({{ contacts }} contact(s) total).
+            {% endblocktrans %}
+        </p>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Team code" %}</th>
+                    <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Members" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for group in match_preview.member_groups %}
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #222; vertical-align:top;">{{ group.team_code }}</td>
+                    <td style="padding:8px; border-bottom:1px solid #222;">
+                        <ul style="margin:0; padding-left:18px;">
+                        {% for member in group.members %}
+                            <li>
+                                {{ member.name }}
+                                {% if member.email %}
+                                    — <a href="mailto:{{ member.email }}">{{ member.email }}</a>
+                                {% endif %}
+                                {% if member.phone %}
+                                    <br><small>{% trans "Phone" %}: {{ member.phone }}</small>
+                                {% endif %}
+                                {% if member.university or member.degree %}
+                                    <br><small>
+                                        {% if member.university %}{{ member.university }}{% endif %}
+                                        {% if member.degree %} — {{ member.degree }}{% endif %}
+                                    </small>
+                                {% endif %}
+                                {% if member.country %}
+                                    <br><small>{% trans "Country" %}: {{ member.country }}</small>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                        </ul>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <h3>{% trans "Email preview" %}</h3>
+        <p><strong>{% trans "Subject" %}:</strong> {{ match_preview.subject }}</p>
+        <div style="border:1px solid #333; padding:12px; background:#0f0f0f; margin-top:12px;">
+            {{ match_preview.html|safe }}
+        </div>
+    </div>
+{% endif %}
+
+<p><a href="{% url 'admin:friends_friendsmergepoolentry_changelist' %}">&larr; {% trans "Back to merge pool entries" %}</a></p>
+{% endblock %}

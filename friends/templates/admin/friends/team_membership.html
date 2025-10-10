@@ -1,0 +1,45 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">{% trans "Home" %}</a>
+        &rsaquo;
+        <a href="{% url 'admin:app_list' 'friends' %}">{% trans "Friends" %}</a>
+        &rsaquo;
+        <a href="{% url 'admin:friends_friendscode_changelist' %}">{% trans "Friends codes" %}</a>
+        &rsaquo;
+        {% trans "Team membership manager" %}
+    </div>
+{% endblock %}
+
+{% block content %}
+    <h1>{% trans "Team membership manager" %}</h1>
+    <p class="help">{% trans "Use these tools to add, move, or remove hackers from Friends teams without leaving the admin." %}</p>
+
+    <div class="module aligned">
+        <h2>{% trans "Add or move a member" %}</h2>
+        <form method="post" novalidate>
+            {% csrf_token %}
+            {{ add_form.as_p }}
+            <div class="submit-row">
+                <button type="submit" class="default" name="add-submit">{% trans "Save membership" %}</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="module aligned">
+        <h2>{% trans "Remove a member" %}</h2>
+        <form method="post" novalidate>
+            {% csrf_token %}
+            {{ remove_form.as_p }}
+            <div class="submit-row">
+                <button type="submit" class="deletelink" name="remove-submit">{% trans "Remove from team" %}</button>
+            </div>
+        </form>
+    </div>
+
+    <p>
+        <a href="{% url 'admin:friends_friendscode_changelist' %}" class="button">{% trans "Back to team list" %}</a>
+    </p>
+{% endblock %}

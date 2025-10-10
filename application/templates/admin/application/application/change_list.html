@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block object-tools-items %}
+    {{ block.super }}
+    <li>
+        <a href="{% url 'admin:application_application_university_roster' %}">
+            {% trans "University roster" %}
+        </a>
+    </li>
+{% endblock %}
