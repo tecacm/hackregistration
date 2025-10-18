@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+        &rsaquo; <a href="{% url 'admin:app_list' 'application' %}">{% trans 'Applications' %}</a>
+        &rsaquo; <a href="{% url 'admin:application_application_changelist' %}">{% trans 'Applications' %}</a>
+        &rsaquo; {{ title }}
+    </div>
+{% endblock %}
+
+{% block content_title %}{{ title }}{% endblock %}
+
+{% block content %}
+    <div class="module">
+        <h2>{% trans "Filters" %}</h2>
+        <p class="help">{% trans "Select an edition and statuses (optional) to include in the export. Leave statuses blank to include every hacker application." %}</p>
+        <form method="get" novalidate>
+            {{ form.non_field_errors }}
+            <fieldset class="module aligned">
+                {% for field in form %}
+                    <div class="form-row">
+                        <label for="{{ field.id_for_label }}">
+                            {{ field.label }}{% if field.field.required %}<span class="required">*</span>{% endif %}
+                        </label>
+                        <div class="field-box">
+                            {{ field }}
+                            {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+                            {{ field.errors }}
+                        </div>
+                    </div>
+                {% endfor %}
+            </fieldset>
+            <div class="submit-row">
+                <button type="submit" class="button default">{% trans "Apply filters" %}</button>
+                {% if filters_applied and total %}
+                    <button type="submit" name="download" value="1" class="button">{% trans "Download CSV" %}</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    {% if filters_applied %}
+        <div class="module">
+            <h2>{% trans "Summary" %}</h2>
+            {% if total %}
+                <p class="help">{% blocktrans with total=total %}Found {{ total }} hacker application(s) matching the selected filters.{% endblocktrans %}</p>
+                <p class="help">{% trans "Previewing the first 50 rows below. Use the Download CSV button for the complete dataset." %}</p>
+                <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "First name" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Last name" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Email" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Phone" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Country" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "School" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Level of study" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "MLH Code of Conduct" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Event Logistics Information" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Communication from MLH" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in preview %}
+                            <tr>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.first_name }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.last_name }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;"><a href="mailto:{{ row.email }}">{{ row.email }}</a></td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.phone }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.country }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.school }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.level }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.mlh_code }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.mlh_logistics }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.mlh_comms }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="help">{% trans "No hacker applications matched the selected filters." %}</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    <p><a href="{% url 'admin:application_application_changelist' %}">&larr; {% trans "Back to applications" %}</a></p>
+{% endblock %}

@@ -8,4 +8,19 @@
             {% trans "University roster" %}
         </a>
     </li>
+    <li>
+        <a href="{% url 'admin:application_application_confirmed_small_teams' %}">
+            {% trans "Confirmed: small/no team" %}
+        </a>
+    </li>
+    <li>
+        <a href="{% url 'admin:application_application_test_user_cleanup' %}">
+            {% trans "Test user cleanup" %}
+        </a>
+    </li>
+    <li>
+        <a href="{% url 'admin:application_application_hacker_export' %}">
+            {% trans "Export hacker data" %}
+        </a>
+    </li>
 {% endblock %}

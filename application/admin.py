@@ -1,9 +1,11 @@
 import csv
 import time
+from collections import Counter, defaultdict
 
 from django import forms
 from django.conf import settings
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.urls import path
@@ -48,6 +50,66 @@ class UniversityRosterForm(forms.Form):
             models.Application.STATUS_LAST_REMINDER,
         ],
         help_text=_('Restrict results to these statuses. Leave empty to include every status.'),
+    )
+
+
+class ConfirmedSmallTeamsForm(forms.Form):
+    edition = forms.ModelChoiceField(
+        queryset=models.Edition.objects.order_by('-order'),
+        required=False,
+        label=_('Edition'),
+        help_text=_('Defaults to the current edition when left blank.'),
+    )
+    application_type = forms.ModelChoiceField(
+        queryset=models.ApplicationTypeConfig.objects.order_by('name'),
+        required=False,
+        label=_('Application type'),
+        help_text=_('Optional: narrow results to a specific application type.'),
+    )
+    max_team_size = forms.IntegerField(
+        min_value=0,
+        max_value=10,
+        initial=2,
+        label=_('Max team size (≤)'),
+        help_text=_('Include confirmed participants whose team has this many members or fewer.'),
+    )
+    include_no_team = forms.BooleanField(
+        required=False,
+        initial=True,
+        label=_('Include no-team participants'),
+        help_text=_('When enabled, confirmed participants without a friends code are included.'),
+    )
+    statuses = forms.MultipleChoiceField(
+        required=True,
+        label=_('Application statuses to include'),
+        widget=forms.CheckboxSelectMultiple,
+        choices=[
+            (models.Application.STATUS_CONFIRMED, _('Confirmed')),
+            (models.Application.STATUS_ATTENDED, _('Attended')),
+            (models.Application.STATUS_INVITED, _('Invited')),
+            (models.Application.STATUS_LAST_REMINDER, _('Last reminder')),
+        ],
+        initial=[
+            models.Application.STATUS_CONFIRMED,
+            models.Application.STATUS_ATTENDED,
+        ],
+        help_text=_('Pick which confirmed-like statuses should be considered for this report.'),
+    )
+
+
+class HackerExportForm(forms.Form):
+    edition = forms.ModelChoiceField(
+        queryset=models.Edition.objects.order_by('-order'),
+        required=False,
+        label=_('Edition'),
+        help_text=_('Defaults to the current edition when left blank.'),
+    )
+    statuses = forms.MultipleChoiceField(
+        required=False,
+        choices=models.Application.STATUS,
+        widget=forms.CheckboxSelectMultiple,
+        label=_('Application statuses'),
+        help_text=_('Leave empty to include every status.'),
     )
 
 
@@ -284,6 +346,21 @@ class ApplicationAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.university_roster_view),
                 name='application_application_university_roster',
             ),
+            path(
+                'confirmed-small-teams/',
+                self.admin_site.admin_view(self.confirmed_small_teams_view),
+                name='application_application_confirmed_small_teams',
+            ),
+            path(
+                'test-user-cleanup/',
+                self.admin_site.admin_view(self.test_user_cleanup_view),
+                name='application_application_test_user_cleanup',
+            ),
+            path(
+                'hacker-export/',
+                self.admin_site.admin_view(self.hacker_export_view),
+                name='application_application_hacker_export',
+            ),
         ]
         return custom + urls
 
@@ -372,6 +449,423 @@ class ApplicationAdmin(admin.ModelAdmin):
             filters_applied=bound and form.is_valid(),
         )
         return TemplateResponse(request, 'admin/application/university_roster.html', context)
+
+    def confirmed_small_teams_view(self, request):
+        default_edition = None
+        try:
+            default_edition = models.Edition.objects.get(pk=models.Edition.get_default_edition())
+        except models.Edition.DoesNotExist:
+            default_edition = None
+
+        initial = {}
+        if default_edition:
+            initial['edition'] = default_edition
+
+        bound = 'max_team_size' in request.GET or request.GET.get('download') == '1'
+        if bound:
+            form = ConfirmedSmallTeamsForm(request.GET, initial=initial)
+        else:
+            form = ConfirmedSmallTeamsForm(initial=initial)
+
+        report_rows = []
+        totals = {
+            'overall': 0,
+            'no_team': 0,
+            'team_counts': Counter(),
+        }
+        edition = None
+        size_limit = None
+        if form.is_valid():
+            edition = form.cleaned_data['edition'] or default_edition
+            app_type = form.cleaned_data['application_type']
+            size_limit = form.cleaned_data['max_team_size']
+            include_no_team = form.cleaned_data['include_no_team']
+            statuses = form.cleaned_data['statuses']
+
+            apps_qs = models.Application.objects.all().select_related('user', 'type').order_by('user__first_name', 'user__last_name', 'user__email')
+            if edition:
+                apps_qs = apps_qs.filter(edition=edition)
+            if app_type:
+                apps_qs = apps_qs.filter(type=app_type)
+            if statuses:
+                apps_qs = apps_qs.filter(status__in=statuses)
+
+            applications = list(apps_qs)
+            if applications:
+                user_ids = {app.user_id for app in applications}
+
+                user_code_map = defaultdict(set)
+                member_code_qs = FriendsCode.objects.filter(user_id__in=user_ids).values_list('user_id', 'code').distinct()
+                for user_id, code in member_code_qs:
+                    if code:
+                        user_code_map[user_id].add(code)
+
+                relevant_codes = {code for codes in user_code_map.values() for code in codes}
+
+                if edition and relevant_codes:
+                    code_memberships = FriendsCode.objects.filter(
+                        code__in=relevant_codes,
+                        user__application__edition=edition,
+                    ).values_list('code', 'user_id').distinct()
+                elif relevant_codes:
+                    code_memberships = FriendsCode.objects.filter(code__in=relevant_codes).values_list('code', 'user_id').distinct()
+                else:
+                    code_memberships = []
+
+                code_members = defaultdict(set)
+                member_user_ids = set()
+                for code, member_user_id in code_memberships:
+                    code_members[code].add(member_user_id)
+                    member_user_ids.add(member_user_id)
+
+                member_ids_list = list(member_user_ids)
+                if edition:
+                    apps_in_edition = models.Application.objects.filter(edition=edition, user__id__in=member_ids_list)
+                else:
+                    apps_in_edition = models.Application.objects.filter(user__id__in=member_ids_list)
+
+                user_primary_application = {}
+                user_status_sets = defaultdict(set)
+                status_priority = {
+                    models.Application.STATUS_ATTENDED: 0,
+                    models.Application.STATUS_CONFIRMED: 1,
+                    models.Application.STATUS_LAST_REMINDER: 2,
+                    models.Application.STATUS_INVITED: 3,
+                }
+
+                for app in apps_in_edition.select_related('user', 'type').order_by('submission_date'):
+                    user_status_sets[app.user_id].add(app.status)
+                    chosen = user_primary_application.get(app.user_id)
+                    if chosen is None:
+                        user_primary_application[app.user_id] = app
+                        continue
+                    existing_priority = status_priority.get(chosen.status, 99)
+                    new_priority = status_priority.get(app.status, 99)
+                    if new_priority < existing_priority:
+                        user_primary_application[app.user_id] = app
+
+                confirmed_like_statuses = {models.Application.STATUS_CONFIRMED, models.Application.STATUS_ATTENDED}
+
+                for app in applications:
+                    codes = sorted(user_code_map.get(app.user_id, []))
+                    if not codes:
+                        if include_no_team:
+                            totals['overall'] += 1
+                            totals['no_team'] += 1
+                            report_rows.append({
+                                'name': (app.get_full_name() or app.user.get_full_name() or app.user.email or _('Unknown')).strip(),
+                                'email': app.user.email,
+                                'status': app.get_status_display(),
+                                'team_code': '',
+                                'team_size': 0,
+                                'confirmed_members': 0,
+                                'total_members': 0,
+                                'teammates': [],
+                                'application_type': app.type.name if app.type else '',
+                            })
+                        continue
+
+                    team_code = codes[0]
+                    members = set(code_members.get(team_code, set()))
+                    if not members:
+                        members = {app.user_id}
+                    else:
+                        members.add(app.user_id)
+
+                    total_members = len(members)
+                    confirmed_members = sum(1 for member_id in members if confirmed_like_statuses & user_status_sets.get(member_id, set()))
+
+                    if total_members <= size_limit:
+                        teammate_rows = []
+                        for member_id in sorted(members):
+                            if member_id == app.user_id:
+                                continue
+                            teammate_app = user_primary_application.get(member_id)
+                            if teammate_app is None:
+                                continue
+                            teammate_name = (teammate_app.get_full_name() or teammate_app.user.get_full_name() or teammate_app.user.email or _('Unknown')).strip()
+                            teammate_rows.append({
+                                'name': teammate_name,
+                                'email': teammate_app.user.email,
+                                'status': teammate_app.get_status_display(),
+                            })
+
+                        totals['overall'] += 1
+                        totals['team_counts'][total_members] += 1
+                        report_rows.append({
+                            'name': (app.get_full_name() or app.user.get_full_name() or app.user.email or _('Unknown')).strip(),
+                            'email': app.user.email,
+                            'status': app.get_status_display(),
+                            'team_code': team_code,
+                            'team_size': total_members,
+                            'confirmed_members': confirmed_members,
+                            'total_members': total_members,
+                            'teammates': teammate_rows,
+                            'application_type': app.type.name if app.type else '',
+                        })
+
+                report_rows.sort(key=lambda row: (row['team_size'], row['name'].lower()))
+
+                if request.GET.get('download') == '1' and report_rows:
+                    filename_bits = ['confirmed-small-teams']
+                    if edition:
+                        filename_bits.append(slugify(str(edition)))
+                    if app_type:
+                        filename_bits.append(slugify(app_type.name))
+                    filename = '-'.join(filter(None, filename_bits)) + '.csv'
+                    response = HttpResponse(content_type='text/csv; charset=utf-8')
+                    response['Content-Disposition'] = f'attachment; filename={filename}'
+                    response.write('\ufeff')
+                    writer = csv.writer(response, lineterminator='\n')
+                    writer.writerow([
+                        'Full name',
+                        'Email',
+                        'Application type',
+                        'Status',
+                        'Team code',
+                        'Team size',
+                        'Confirmed members',
+                        'Teammates',
+                    ])
+                    for row in report_rows:
+                        teammates_str = '; '.join(
+                            f"{mate['name']} <{mate['email']}>" if mate['email'] else mate['name']
+                            for mate in row['teammates']
+                        )
+                        writer.writerow([
+                            row['name'],
+                            row['email'],
+                            row['application_type'],
+                            row['status'],
+                            row['team_code'],
+                            row['team_size'],
+                            row['confirmed_members'],
+                            teammates_str,
+                        ])
+                    return response
+
+        size_breakdown = sorted(totals['team_counts'].items()) if totals['team_counts'] else []
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title=_('Confirmed participants in small or no teams'),
+            form=form,
+            rows=report_rows,
+            totals=totals,
+            size_breakdown=size_breakdown,
+            filters_applied=form.is_valid() and (bound or request.GET.get('download') == '1'),
+            size_limit=size_limit,
+        )
+        return TemplateResponse(request, 'admin/application/confirmed_small_teams.html', context)
+
+    def test_user_cleanup_view(self, request):
+        User = get_user_model()
+        test_users = User.objects.filter(email__icontains='@test').order_by('email')
+        user_count = test_users.count()
+
+        if request.method == 'POST' and request.POST.get('confirm') == '1' and user_count:
+            ids = list(test_users.values_list('id', flat=True))
+            application_total = models.Application.objects.filter(user__id__in=ids).count()
+            friends_memberships = FriendsCode.objects.filter(user_id__in=ids).count()
+            deleted = test_users.delete()
+            self.message_user(
+                request,
+                _(
+                    'Deleted %(users)d test user(s), %(applications)d application(s), and %(memberships)d team membership(s).'
+                ) % {
+                    'users': user_count,
+                    'applications': application_total,
+                    'memberships': friends_memberships,
+                },
+            )
+            from django.shortcuts import redirect
+            from django.urls import reverse
+            return redirect(reverse('admin:application_application_test_user_cleanup'))
+
+        user_rows = []
+        if user_count:
+            ids = list(test_users.values_list('id', flat=True))
+            applications = models.Application.objects.filter(user__id__in=ids).select_related('type', 'edition').order_by('submission_date')
+            apps_by_user = defaultdict(list)
+            for app in applications:
+                apps_by_user[app.user_id].append(app)
+
+            friend_entries = FriendsCode.objects.filter(user_id__in=ids).values_list('user_id', 'code')
+            codes_by_user = defaultdict(set)
+            for user_id, code in friend_entries:
+                if code:
+                    codes_by_user[user_id].add(code)
+
+            for user in test_users:
+                user_apps = apps_by_user.get(user.id, [])
+                app_summary = [
+                    {
+                        'type': app.type.name if app.type else '',
+                        'edition': str(app.edition) if app.edition else '',
+                        'status': app.get_status_display(),
+                    }
+                    for app in user_apps
+                ]
+                user_rows.append({
+                    'id': user.id,
+                    'name': user.get_full_name() or user.email,
+                    'email': user.email,
+                    'date_joined': user.date_joined,
+                    'application_count': len(user_apps),
+                    'applications': app_summary,
+                    'team_codes': sorted(codes_by_user.get(user.id, [])),
+                })
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title=_('Test user cleanup'),
+            total_users=user_count,
+            rows=user_rows,
+        )
+        return TemplateResponse(request, 'admin/application/test_user_cleanup.html', context)
+
+    def hacker_export_view(self, request):
+        default_edition = None
+        try:
+            default_edition = models.Edition.objects.get(pk=models.Edition.get_default_edition())
+        except models.Edition.DoesNotExist:
+            default_edition = None
+
+        initial = {}
+        if default_edition:
+            initial['edition'] = default_edition
+
+        bound = bool(request.GET)
+        if bound:
+            form = HackerExportForm(request.GET, initial=initial)
+        else:
+            form = HackerExportForm(initial=initial)
+
+        preview_rows = []
+        total = 0
+        edition = None
+        if form.is_valid():
+            edition = form.cleaned_data['edition'] or default_edition
+            statuses = form.cleaned_data['statuses']
+
+            applications = models.Application.objects.select_related('user', 'type', 'edition')
+            applications = applications.filter(type__name__iexact='Hacker')
+            if edition:
+                applications = applications.filter(edition=edition)
+            if statuses:
+                applications = applications.filter(status__in=statuses)
+
+            applications = list(applications.order_by('user__first_name', 'user__last_name', 'user__email'))
+            total = len(applications)
+
+            def normalize_bool(value, default=False):
+                if isinstance(value, bool):
+                    return value
+                if value is None:
+                    return default
+                if isinstance(value, str):
+                    lowered = value.strip().lower()
+                    if lowered in {'true', '1', 'yes', 'y', 'on'}:
+                        return True
+                    if lowered in {'false', '0', 'no', 'n', 'off'}:
+                        return False
+                return bool(value)
+
+            rows = []
+            for app in applications:
+                data = app.form_data or {}
+                user = getattr(app, 'user', None)
+
+                first_name = (getattr(user, 'first_name', '') or data.get('first_name') or '').strip()
+                last_name = (getattr(user, 'last_name', '') or data.get('last_name') or '').strip()
+                email = getattr(user, 'email', '') or data.get('email', '')
+
+                phone = data.get('phone_number') or getattr(user, 'phone_number', '')
+                age_value = getattr(user, 'age', None)
+                age = str(age_value) if age_value is not None else ''
+                country = data.get('country') or data.get('origin_country') or ''
+                school = app.get_school_name() or data.get('university') or ''
+                level = data.get('level_of_study') or getattr(user, 'level_of_study', '')
+
+                mlh_data = normalize_bool(data.get('mlh_data'), default=True)
+                mlh_emails = normalize_bool(data.get('mlh_emails'), default=False)
+                mlh_code_conduct = True  # Required to submit application
+
+                mlh_summary = '; '.join([
+                    _('Code of Conduct: %s') % (_('Yes') if mlh_code_conduct else _('No')),
+                    _('Event Logistics Information: %s') % (_('Yes') if mlh_data else _('No')),
+                    _('Communication from MLH: %s') % (_('Yes') if mlh_emails else _('No')),
+                ])
+
+                rows.append({
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'email': email,
+                    'phone': phone,
+                    'age': age,
+                    'country': country,
+                    'school': school,
+                    'level': level,
+                    'mlh_summary': mlh_summary,
+                    'mlh_code': _('Yes') if mlh_code_conduct else _('No'),
+                    'mlh_logistics': _('Yes') if mlh_data else _('No'),
+                    'mlh_comms': _('Yes') if mlh_emails else _('No'),
+                })
+
+            preview_rows = rows[:50]
+
+            if request.GET.get('download') == '1' and rows:
+                filename_bits = ['hacker-export']
+                if edition:
+                    filename_bits.append(slugify(str(edition)))
+                timestamp = time.strftime('%Y%m%d-%H%M%S')
+                filename_bits.append(timestamp)
+                filename = '-'.join(filename_bits) + '.csv'
+
+                response = HttpResponse(content_type='text/csv; charset=utf-8')
+                response['Content-Disposition'] = f'attachment; filename={filename}'
+                response.write('\ufeff')
+                writer = csv.writer(response, lineterminator='\n')
+                writer.writerow([
+                    'First name',
+                    'Last name',
+                    'Email',
+                    'Phone number',
+                    'Age',
+                    'Country of residence',
+                    'School',
+                    'Current level of study',
+                    'MLH Checkbox Responses',
+                    'MLH Code of Conduct',
+                    'Event Logistics Information',
+                    'Communication from MLH',
+                ])
+                for row in rows:
+                    writer.writerow([
+                        row['first_name'],
+                        row['last_name'],
+                        row['email'],
+                        row['phone'],
+                        row['age'],
+                        row['country'],
+                        row['school'],
+                        row['level'],
+                        row['mlh_summary'],
+                        row['mlh_code'],
+                        row['mlh_logistics'],
+                        row['mlh_comms'],
+                    ])
+                return response
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title=_('Export hacker data'),
+            form=form,
+            preview=preview_rows,
+            total=total,
+            filters_applied=form.is_bound and form.is_valid(),
+        )
+        return TemplateResponse(request, 'admin/application/hacker_export.html', context)
 
 
 class ApplicationTypeConfigAdminForm(forms.ModelForm):

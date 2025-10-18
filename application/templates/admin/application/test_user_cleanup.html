@@ -1,0 +1,82 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+        &rsaquo; <a href="{% url 'admin:app_list' 'application' %}">{% trans 'Applications' %}</a>
+        &rsaquo; <a href="{% url 'admin:application_application_changelist' %}">{% trans 'Applications' %}</a>
+        &rsaquo; {{ title }}
+    </div>
+{% endblock %}
+
+{% block content_title %}{{ title }}{% endblock %}
+
+{% block content %}
+    <div class="module">
+        <h2>{% trans "Overview" %}</h2>
+        {% if total_users %}
+            <p class="help">
+                {% blocktrans with total=total_users %}Identified {{ total }} user account(s) with “@test” in the email address.{% endblocktrans %}
+            </p>
+            <form method="post" style="margin-top:12px;">
+                {% csrf_token %}
+                <input type="hidden" name="confirm" value="1" />
+                <p class="help">{% trans "Deleting these accounts will also remove their applications, team memberships, and related data." %}</p>
+                <button type="submit" class="button delete-button">{% blocktrans with total=total_users %}Delete {{ total }} test user(s){% endblocktrans %}</button>
+            </form>
+        {% else %}
+            <p class="help">{% trans "No accounts matching the test-user pattern were found." %}</p>
+        {% endif %}
+    </div>
+
+    {% if rows %}
+        <div class="module">
+            <h2>{% trans "Accounts" %}</h2>
+            <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Name" %}</th>
+                        <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Email" %}</th>
+                        <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Joined" %}</th>
+                        <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Applications" %}</th>
+                        <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Team codes" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td style="padding:8px; border-bottom:1px solid #222;">{{ row.name }}</td>
+                            <td style="padding:8px; border-bottom:1px solid #222;">
+                                <a href="mailto:{{ row.email }}">{{ row.email }}</a>
+                            </td>
+                            <td style="padding:8px; border-bottom:1px solid #222;">{{ row.date_joined }}</td>
+                            <td style="padding:8px; border-bottom:1px solid #222;">
+                                {% if row.applications %}
+                                    <ul style="margin:0; padding-left:16px;">
+                                        {% for app in row.applications %}
+                                            <li>
+                                                {{ app.type }}{% if app.edition %} – {{ app.edition }}{% endif %}{% if app.status %} ({{ app.status }}){% endif %}
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <span class="help">{% trans "None" %}</span>
+                                {% endif %}
+                            </td>
+                            <td style="padding:8px; border-bottom:1px solid #222;">
+                                {% if row.team_codes %}
+                                    {{ row.team_codes|join:", " }}
+                                {% else %}
+                                    <span class="help">{% trans "None" %}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+
+    <p><a href="{% url 'admin:application_application_changelist' %}">&larr; {% trans "Back to applications" %}</a></p>
+{% endblock %}

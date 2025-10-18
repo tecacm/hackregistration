@@ -1,0 +1,119 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+        &rsaquo; <a href="{% url 'admin:app_list' 'application' %}">{% trans 'Applications' %}</a>
+        &rsaquo; <a href="{% url 'admin:application_application_changelist' %}">{% trans 'Applications' %}</a>
+        &rsaquo; {{ title }}
+    </div>
+{% endblock %}
+
+{% block content_title %}{{ title }}{% endblock %}
+
+{% block content %}
+    <div class="module">
+        <h2>{% trans "Filter confirmed participants" %}</h2>
+        <p class="help">
+            {% trans "Select the edition, type, and filters to list confirmed or attended participants whose team is small or missing." %}
+        </p>
+        <form method="get" novalidate>
+            {{ form.non_field_errors }}
+            <fieldset class="module aligned">
+                {% for field in form %}
+                    <div class="form-row">
+                        <label for="{{ field.id_for_label }}">
+                            {{ field.label }}{% if field.field.required %}<span class="required">*</span>{% endif %}
+                        </label>
+                        <div class="field-box">
+                            {{ field }}
+                            {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+                            {{ field.errors }}
+                        </div>
+                    </div>
+                {% endfor %}
+            </fieldset>
+            <div class="submit-row">
+                <button type="submit" class="button default">{% trans "Apply filters" %}</button>
+                {% if filters_applied and rows %}
+                    <button type="submit" name="download" value="1" class="button">{% trans "Download CSV" %}</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    {% if filters_applied %}
+        {% if rows %}
+            <div class="module">
+                <h2>{% trans "Results" %}</h2>
+                <p class="help">
+                    {% blocktrans with count=totals.overall limit=size_limit %}Showing {{ count }} participant(s) with team size ≤ {{ limit }} or no team.{% endblocktrans %}
+                </p>
+                <ul>
+                    <li><strong>{% trans "No-team participants" %}:</strong> {{ totals.no_team }}</li>
+                    {% for size, count in size_breakdown %}
+                        <li><strong>{% blocktrans with size=size %}Team size {{ size }}{% endblocktrans %}:</strong> {{ count }}</li>
+                    {% endfor %}
+                </ul>
+                <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Full name" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Email" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Application type" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Status" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Team code" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Team size" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Confirmed members" %}</th>
+                            <th style="text-align:left; padding:8px; border-bottom:1px solid #333;">{% trans "Teammates" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                            <tr>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.name }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">
+                                    {% if row.email %}
+                                        <a href="mailto:{{ row.email }}">{{ row.email }}</a>
+                                    {% else %}
+                                        <span class="help">{% trans "No email on file" %}</span>
+                                    {% endif %}
+                                </td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.application_type }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.status }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">
+                                    {% if row.team_code %}
+                                        {{ row.team_code }}
+                                    {% else %}
+                                        <span class="help">{% trans "No team" %}</span>
+                                    {% endif %}
+                                </td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.team_size }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">{{ row.confirmed_members }}</td>
+                                <td style="padding:8px; border-bottom:1px solid #222;">
+                                    {% if row.teammates %}
+                                        <ul style="margin:0; padding-left:16px;">
+                                            {% for mate in row.teammates %}
+                                                <li>{{ mate.name }}{% if mate.email %} (<a href="mailto:{{ mate.email }}">{{ mate.email }}</a>){% endif %} – {{ mate.status }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <span class="help">{% trans "No teammates listed" %}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="module">
+                <h2>{% trans "Results" %}</h2>
+                <p class="help">{% trans "No confirmed participants matched the selected filters." %}</p>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    <p><a href="{% url 'admin:application_application_changelist' %}">&larr; {% trans "Back to applications" %}</a></p>
+{% endblock %}

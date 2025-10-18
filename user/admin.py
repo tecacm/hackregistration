@@ -24,8 +24,9 @@ class UserAdmin(BaseUserAdmin):
             'first_name', 'last_name', 'phone_number', 'level_of_study', 'judge_type', 'diet', 'other_diet', 'gender',
             'other_gender', 'tshirt_size', 'qr_code', 'display_age'
         )}),
-        ('Permissions', {'fields': ('email_verified', 'is_staff', 'is_superuser', 'groups', 'user_permissions',
-                                    'is_active')}),
+    ('Permissions', {'fields': ('email_verified', 'is_staff', 'is_superuser', 'groups', 'user_permissions',
+                    'is_active')}),
+    ('Important dates', {'fields': ('date_joined', 'last_login')}),
     )
     # add_fieldsets is not a standard ModelAdmin attribute. UserAdmin
     # overrides get_fieldsets to use this attribute when creating a user.
@@ -41,7 +42,7 @@ class UserAdmin(BaseUserAdmin):
 
     actions = ['anonymize_and_free_email', 'hard_delete_users']
 
-    readonly_fields = ('display_age',)
+    readonly_fields = ('display_age', 'date_joined', 'last_login')
 
     def display_age(self, obj):
         return obj.age if obj.age is not None else '—'
