@@ -22,6 +22,7 @@ from friends.forms import (
 	TeamMembershipAddForm,
 	TeamMembershipRemoveForm,
 )
+from friends.services import TrackAssignmentService
 
 
 @admin.register(FriendsCode)
@@ -40,13 +41,76 @@ class FriendsCodeAdmin(admin.ModelAdmin):
 				self.admin_site.admin_view(self.membership_view),
 				name='friends_friendscode_membership',
 			),
+			path(
+				'assign-tracks/',
+				self.admin_site.admin_view(self.track_assignment_view),
+				name='friends_friendscode_assign_tracks',
+			),
 		]
 		return custom + urls
 
 	def changelist_view(self, request, extra_context=None):
 		extra_context = extra_context or {}
 		extra_context['membership_url'] = reverse('admin:friends_friendscode_membership')
+		extra_context['assign_tracks_url'] = reverse('admin:friends_friendscode_assign_tracks')
 		return super().changelist_view(request, extra_context=extra_context)
+
+	def track_assignment_view(self, request):
+		assignments = []
+		skipped = []
+		limit_value = ''
+		dry_run = False
+		skip_email = False
+		if request.method == 'POST':
+			limit_value = (request.POST.get('limit') or '').strip()
+			dry_run = bool(request.POST.get('dry_run'))
+			skip_email = bool(request.POST.get('skip_email'))
+			parsed_limit = None
+			if limit_value:
+				try:
+					parsed_limit = max(int(limit_value), 1)
+				except ValueError:
+					messages.error(request, _('Limit must be a positive integer.'))
+					parsed_limit = None
+					context = dict(
+						self.admin_site.each_context(request),
+						title=_('Automatic track assignment'),
+						assignments=assignments,
+						skipped=skipped,
+						limit_value=limit_value,
+						dry_run=dry_run,
+						skip_email=skip_email,
+					)
+					return TemplateResponse(request, 'admin/friends/assign_tracks.html', context)
+			service = TrackAssignmentService()
+			assignments, skipped = service.run(
+				dry_run=dry_run,
+				limit=parsed_limit,
+				send_emails=not skip_email,
+			)
+			if assignments:
+				if dry_run:
+					messages.info(request, _('Dry run generated %(count)d pending assignment(s). No changes were saved.') % {'count': len(assignments)})
+				else:
+					messages.success(request, _('Assigned %(count)d team(s) to tracks.') % {'count': len(assignments)})
+					return HttpResponseRedirect(reverse('admin:friends_friendscode_changelist'))
+			else:
+				if dry_run:
+					messages.info(request, _('Dry run found no eligible teams to assign.'))
+				else:
+					messages.info(request, _('No teams were assigned in this run.'))
+					return HttpResponseRedirect(request.path)
+
+		context = dict(
+			self.admin_site.each_context(request),
+			title=_('Automatic track assignment'),
+			assignments=assignments,
+			skipped=skipped,
+			limit_value=limit_value,
+			dry_run=dry_run,
+			skip_email=skip_email,
+		)
+		return TemplateResponse(request, 'admin/friends/assign_tracks.html', context)
 
 	def membership_view(self, request):
 		add_form = TeamMembershipAddForm(prefix='add')

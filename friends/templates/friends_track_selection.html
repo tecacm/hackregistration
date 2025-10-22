@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load i18n util %}
+{% load i18n util static %}
 {% block content %}
 <div class="container py-4">
   <h1>{% translate 'Team Track Selection' %}</h1>
@@ -7,12 +7,33 @@
     <div class="alert alert-success">{% blocktrans %}Your team has been assigned to: {{ assigned_label }}{% endblocktrans %}</div>
   {% else %}
     {% if track_selection_open %}
-      <p>{% translate 'Select your top 3 preferred tracks. Each track has limited capacity (63 teams).' %}</p>
-      <ul class="list-unstyled mb-3">
+      <p>{% translate 'Select your top 3 preferred tracks. Each track has limited capacity — explore the options below before submitting your choices.' %}</p>
+      <div class="row row-cols-1 row-cols-lg-2 g-3 mb-4">
         {% for key,label in group.TRACKS %}
-          <li>{{ label }} — {{ track_counts|get_item:key }} / {{ track_capacity }}</li>
+          {% with detail=group.TRACK_DETAILS|get_item:key %}
+            <div class="col">
+              <div class="border rounded-4 p-3 h-100">
+                <div class="d-flex align-items-center mb-3">
+                  {% if detail and detail.logo %}
+                    <div class="me-3 flex-shrink-0">
+                      <img src="{% static detail.logo %}" alt="{% if detail.logo_alt %}{{ detail.logo_alt }}{% else %}{{ label }}{% endif %} logo" style="max-height:48px;">
+                    </div>
+                  {% endif %}
+                  <div>
+                    <h2 class="h6 mb-1">{{ label }}</h2>
+                    <div class="text-muted small">
+                      {{ track_counts|get_item:key }} / {{ group.TRACK_CAPACITY|get_item:key }} {% translate 'teams assigned' %}
+                    </div>
+                  </div>
+                </div>
+                {% if detail and detail.description %}
+                  <p class="mb-0">{{ detail.description }}</p>
+                {% endif %}
+              </div>
+            </div>
+          {% endwith %}
         {% endfor %}
-      </ul>
+      </div>
       {% if form %}
         <form method="post">
           {% csrf_token %}

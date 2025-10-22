@@ -1,0 +1,108 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans "Home" %}</a>
+    &rsaquo;
+    <a href="{% url 'admin:app_list' 'friends' %}">{% trans "Friends" %}</a>
+    &rsaquo;
+    <a href="{% url 'admin:friends_friendscode_changelist' %}">{% trans "Friends codes" %}</a>
+    &rsaquo;
+    {% trans "Automatic track assignment" %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <h1>{% trans "Automatic track assignment" %}</h1>
+  <p class="help">
+    {% blocktrans %}Run the automated track assignment using the latest team preferences and capacity limits. Use a dry run first to review which teams would be placed before finalizing.{% endblocktrans %}
+  </p>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <fieldset class="module aligned">
+      <legend>{% trans "Assignment options" %}</legend>
+      <div class="form-row field-limit">
+        <label for="id_limit">{% trans "Limit" %}</label>
+        <input type="number" name="limit" id="id_limit" min="1" value="{{ limit_value }}" placeholder="{% trans "(all teams)" %}">
+        <p class="help">{% blocktrans %}Optional: cap how many teams are processed in this run. Leave blank to include every eligible team.{% endblocktrans %}</p>
+      </div>
+      <div class="form-row field-dry-run">
+        <label for="id_dry_run">
+          <input type="checkbox" name="dry_run" id="id_dry_run" {% if dry_run %}checked{% endif %}>
+          {% trans "Dry run" %}
+        </label>
+        <p class="help">{% blocktrans %}Preview the results without saving assignments or sending emails.{% endblocktrans %}</p>
+      </div>
+      <div class="form-row field-skip-email">
+        <label for="id_skip_email">
+          <input type="checkbox" name="skip_email" id="id_skip_email" {% if skip_email %}checked{% endif %}>
+          {% trans "Skip notification emails" %}
+        </label>
+        <p class="help">{% blocktrans %}When unchecked, each assigned team receives the "track assigned" email at completion.{% endblocktrans %}</p>
+      </div>
+    </fieldset>
+    <div class="submit-row">
+      <button type="submit" class="default">{% trans "Run assignment" %}</button>
+    </div>
+  </form>
+
+  {% if assignments %}
+    <h2>{% trans "Assignment preview" %}</h2>
+    <table class="listing" id="assignment-preview">
+      <thead>
+        <tr>
+          <th>{% trans "Team code" %}</th>
+          <th>{% trans "Track" %}</th>
+          <th>{% trans "Preference used" %}</th>
+          <th>{% trans "Team size" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in assignments %}
+          <tr>
+            <td>{{ entry.team_code }}</td>
+            <td>{{ entry.track_label }}</td>
+            <td>{{ entry.preference_used }}</td>
+            <td>{{ entry.team_size }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {% if skipped %}
+    <h2>{% trans "Skipped teams" %}</h2>
+    <table class="listing" id="assignment-skipped">
+      <thead>
+        <tr>
+          <th>{% trans "Team code" %}</th>
+          <th>{% trans "Reason" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in skipped %}
+          <tr>
+            <td>{{ entry.team_code }}</td>
+            <td>
+              {% if entry.reason == 'missing_preferences' %}
+                {% trans "Missing preferences" %}
+              {% elif entry.reason == 'not_eligible' %}
+                {% trans "Team no longer eligible" %}
+              {% elif entry.reason == 'no_capacity' %}
+                {% trans "All preferred tracks full" %}
+              {% else %}
+                {{ entry.reason }}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <p>
+    <a href="{% url 'admin:friends_friendscode_changelist' %}" class="button">{% trans "Back to team list" %}</a>
+  </p>
+{% endblock %}

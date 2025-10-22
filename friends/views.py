@@ -7,13 +7,14 @@ from django.urls import reverse
 from django.views.generic import TemplateView
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin
+from django.utils import timezone
 
 from app.emails import EmailList
 from application.mixins import ApplicationPermissionRequiredMixin
 from application.models import Application, Edition, ApplicationTypeConfig, ApplicationLog
 from application.views import ParticipantTabsMixin
 from friends.filters import FriendsInviteTableFilter
-from friends.forms import FriendsForm
+from friends.forms import FriendsForm, TrackPreferenceForm
 from friends.matchmaking import MatchmakingService
 from friends.models import FriendsCode
 from friends.tables import FriendInviteTable
@@ -39,12 +40,29 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        edition_pk = Edition.get_default_edition()
+        track_selection_open = True
+        try:
+            edition_obj = Edition.objects.only('track_selection_open').get(pk=edition_pk)
+            track_selection_open = edition_obj.track_selection_open
+        except Edition.DoesNotExist:
+            track_selection_open = True
         try:
             friends_code = FriendsCode.objects.get(user=self.request.user)
-            context.update({"friends_code": friends_code})
+            members = friends_code.get_members()
+            context.update({
+                "friends_code": friends_code,
+                "members_count": members.count(),
+            })
         except FriendsCode.DoesNotExist:
-            context.update({"friends_form": FriendsForm()})
-        context.update({'friends_max_capacity': getattr(settings, 'FRIENDS_MAX_CAPACITY', None)})
+            context.update({
+                "friends_form": FriendsForm(),
+                "members_count": 0,
+            })
+        context.update({
+            'friends_max_capacity': getattr(settings, 'FRIENDS_MAX_CAPACITY', None),
+            'track_selection_open': track_selection_open,
+        })
         return context
 
     def post(self, request, **kwargs):
@@ -135,6 +153,85 @@ class FriendsListInvite(ApplicationPermissionRequiredMixin, IsOrganizerMixin, Re
         else:
             messages.success(request, _('Invited: %s, Emails sent: %s' % (invited, emails or 0)))
         return redirect(reverse('invite_friends') + ('?type=%s' % self.request.GET.get('type', 'hacker')))
+
+
+class FriendsTrackSelectionView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
+    template_name = 'friends_track_selection.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        try:
+            self.friends_code = FriendsCode.objects.get(user=request.user)
+        except FriendsCode.DoesNotExist:
+            messages.error(request, _('You need a team before selecting a track.'))
+            return redirect('join_friends')
+        self.edition_pk = Edition.get_default_edition()
+        try:
+            self.track_selection_open = Edition.objects.only('track_selection_open').get(pk=self.edition_pk).track_selection_open
+        except Edition.DoesNotExist:
+            self.track_selection_open = True
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_current_tabs(self, **kwargs):
+        return [('Applications', reverse('apply_home')), ('Friends', reverse('join_friends'))]
+
+    def get_form(self):
+        initial = {
+            'track_pref_1': self.friends_code.track_pref_1 or '',
+            'track_pref_2': self.friends_code.track_pref_2 or '',
+            'track_pref_3': self.friends_code.track_pref_3 or '',
+        }
+        return TrackPreferenceForm(initial=initial)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        friends_code = self.friends_code
+        assigned = bool(friends_code.track_assigned)
+        assigned_label = friends_code.get_track_assigned_display() if assigned else ''
+        eligible = friends_code.can_select_track()
+        context.update({
+            'group': friends_code,
+            'assigned': assigned,
+            'assigned_label': assigned_label,
+            'track_selection_open': self.track_selection_open,
+            'track_counts': FriendsCode.track_counts(),
+            'eligible': eligible,
+        })
+        if not assigned and self.track_selection_open and eligible:
+            context.setdefault('form', self.get_form())
+        else:
+            context['form'] = None
+        return context
+
+    def post(self, request, *args, **kwargs):
+        if not self.track_selection_open:
+            messages.error(request, _('Track selection is currently closed.'))
+            return redirect('join_friends')
+        if self.friends_code.track_assigned:
+            messages.info(request, _('Your team already has an assigned track.'))
+            return redirect('friends_track_selection')
+        if not self.friends_code.can_select_track():
+            messages.error(request, _('All teammates must be invited or confirmed before submitting preferences.'))
+            return redirect('join_friends')
+
+        form = TrackPreferenceForm(request.POST)
+        if form.is_valid():
+            preferences = (
+                form.cleaned_data['track_pref_1'],
+                form.cleaned_data['track_pref_2'],
+                form.cleaned_data['track_pref_3'],
+            )
+            timestamp = timezone.now()
+            FriendsCode.objects.filter(code=self.friends_code.code).update(
+                track_pref_1=preferences[0],
+                track_pref_2=preferences[1],
+                track_pref_3=preferences[2],
+                track_pref_submitted_at=timestamp,
+            )
+            messages.success(request, _('Track preferences saved. Organizers will assign tracks as capacities allow.'))
+            return redirect('friends_track_selection')
+
+        context = self.get_context_data(form=form)
+        return self.render_to_response(context)
 
 
 class FriendsMergeOptInView(TemplateView):

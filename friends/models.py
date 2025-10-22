@@ -24,25 +24,76 @@ class FriendsCode(models.Model):
     # Track selection fields
     # Teams submit three ordered preferences; system assigns first available under capacity.
     # Capacity enforced per distinct team code per track.
-    TRACK_INTERACTIVE_MEDIA = 'interactive_media'
-    TRACK_SOCIAL_GOOD = 'social_good'
-    TRACK_ALL_HEALTH = 'all_health'
+    TRACK_SMART_LOGISTICS = 'interactive_media'
+    TRACK_SMART_OPERATIONS = 'social_good'
     TRACK_FINTECH = 'fintech'
     TRACK_SMART_CITIES = 'smart_cities'
     TRACK_OPEN_INNOVATION = 'open_innovation'
+
     TRACKS = [
-        (TRACK_INTERACTIVE_MEDIA, 'Interactive Media'),
-        (TRACK_SOCIAL_GOOD, 'Social Good'),
-        (TRACK_ALL_HEALTH, 'All Health'),
-        (TRACK_FINTECH, 'FinTech'),
-        (TRACK_SMART_CITIES, 'Smart Cities'),
-        (TRACK_OPEN_INNOVATION, 'Open Innovation'),
+        (TRACK_FINTECH, 'Fintech by Capital One'),
+        (TRACK_SMART_LOGISTICS, 'Smart Intelligence by GateGroup'),
+        (TRACK_SMART_OPERATIONS, 'Smart Execution by GateGroup'),
+        (TRACK_SMART_CITIES, 'Smart Cities by Banorte'),
+        (TRACK_OPEN_INNOVATION, 'Open Innovation by Banorte'),
     ]
+
+    TRACK_CAPACITY = {
+        TRACK_FINTECH: 88,
+        TRACK_SMART_LOGISTICS: 44,
+        TRACK_SMART_OPERATIONS: 44,
+        TRACK_SMART_CITIES: 44,
+        TRACK_OPEN_INNOVATION: 44,
+    }
+
+    TRACK_DETAILS = {
+        TRACK_FINTECH: {
+            'description': (
+                'Tackle real-world financial problems by building a unique and technical solution. '
+                "Use Capital One's API to simulating transactions, transfers, and purchases."
+            ),
+            'logo': 'friends/capitalone.png',
+            'logo_alt': 'Capital One',
+        },
+        TRACK_SMART_LOGISTICS: {
+            'description': (
+                'Apply data science, AI, and predictive analytics to complex logistical problems. '
+                'This track focuses on creating smart insights to optimize forecasting and resource management.'
+            ),
+            'logo': 'friends/gategroup.svg',
+            'logo_alt': 'GateGroup',
+        },
+        TRACK_SMART_OPERATIONS: {
+            'description': (
+                'Build real-time systems or automation tools to enhance frontline operations. '
+                'This track focuses on improving manual processes, task execution, and operational awareness.'
+            ),
+            'logo': 'friends/gategroup.svg',
+            'logo_alt': 'GateGroup',
+        },
+        TRACK_SMART_CITIES: {
+            'description': (
+                'Combine financial services with data and technology to foster sustainable city habits. '
+                'This track focuses on creating solutions that measure and incentivize efficient resource use.'
+            ),
+            'logo': 'friends/banorte.png',
+            'logo_alt': 'Banorte',
+        },
+        TRACK_OPEN_INNOVATION: {
+            'description': (
+                'Develop a smart financial tool using AI to help businesses make better decisions. '
+                'This track focuses on creating predictive assistants or simulators.'
+            ),
+            'logo': 'friends/banorte.png',
+            'logo_alt': 'Banorte',
+        },
+    }
     track_pref_1 = models.CharField(max_length=40, choices=TRACKS, blank=True)
     track_pref_2 = models.CharField(max_length=40, choices=TRACKS, blank=True)
     track_pref_3 = models.CharField(max_length=40, choices=TRACKS, blank=True)
     track_assigned = models.CharField(max_length=40, choices=TRACKS, blank=True)
     track_assigned_date = models.DateTimeField(blank=True, null=True)
+    track_pref_submitted_at = models.DateTimeField(blank=True, null=True)
     seeking_merge = models.BooleanField(default=False)
     seeking_merge_updated_at = models.DateTimeField(blank=True, null=True)
 
@@ -79,24 +130,33 @@ class FriendsCode(models.Model):
         return False
 
     @classmethod
-    def track_capacity(cls):
-        return 63  # max teams per track
+    def track_capacity(cls, track_code: str | None = None):
+        if track_code is not None:
+            return cls.TRACK_CAPACITY.get(track_code)
+        return cls.TRACK_CAPACITY
 
     @classmethod
     def track_counts(cls):
         # Count distinct team codes (groups) assigned per track for capacity enforcement
-        return {
-            t[0]: FriendsCode.objects.filter(track_assigned=t[0]).values('code').distinct().count()
-            for t in cls.TRACKS
+        counts = {
+            track: FriendsCode.objects.filter(track_assigned=track).values('code').distinct().count()
+            for track, _ in cls.TRACKS
         }
+        legacy_mapping = {
+            'all_health': cls.TRACK_SMART_OPERATIONS,
+        }
+        for legacy_value, replacement in legacy_mapping.items():
+            legacy_count = FriendsCode.objects.filter(track_assigned=legacy_value).values('code').distinct().count()
+            if legacy_count:
+                counts[replacement] = counts.get(replacement, 0) + legacy_count
+        for track in cls.TRACK_CAPACITY:
+            counts.setdefault(track, 0)
+        return counts
 
     def can_select_track(self):
-        # Eligibility: group full and every member confirmed or attended (current edition)
-        friends_max_capacity = getattr(settings, 'FRIENDS_MAX_CAPACITY', None)
-        if not friends_max_capacity:
-            return False
+        # Eligibility: every teammate must hold an invited/confirmed/attended status for the current edition.
         members = FriendsCode.objects.filter(code=self.code).select_related('user')
-        if members.count() < friends_max_capacity:
+        if not members.exists():
             return False
         edition_pk = Edition.get_default_edition()
         from application.models import Application as AppModel
@@ -104,8 +164,14 @@ class FriendsCode(models.Model):
             AppModel.objects.filter(user__in=[m.user for m in members], edition_id=edition_pk)
             .values_list('status', flat=True)
         )
-        allowed = {AppModel.STATUS_CONFIRMED, AppModel.STATUS_ATTENDED}
-        return len(statuses) == members.count() and all(status in allowed for status in statuses)
+        if len(statuses) != members.count():
+            return False
+        allowed = {
+            AppModel.STATUS_CONFIRMED,
+            AppModel.STATUS_INVITED,
+            AppModel.STATUS_ATTENDED,
+        }
+        return all(status in allowed for status in statuses)
 
 
 class FriendsMembershipLog(models.Model):

@@ -179,7 +179,12 @@ class JudgingScanTests(JudgingTestCase):
 		self.client.force_login(self.judge, backend='django.contrib.auth.backends.ModelBackend')
 		member = self._create_user('encoded@example.com')
 		teammate = self._create_user('encoded-teammate@example.com')
-		FriendsCode.objects.create(user=member, code='TEAM-ENC', devpost_url='https://devpost.com/projects/team-enc', track_assigned=FriendsCode.TRACK_ALL_HEALTH)
+		FriendsCode.objects.create(
+			user=member,
+			code='TEAM-ENC',
+			devpost_url='https://devpost.com/projects/team-enc',
+			track_assigned=FriendsCode.TRACK_SMART_OPERATIONS,
+		)
 		FriendsCode.objects.create(user=teammate, code='TEAM-ENC')
 
 		slug = member.get_encoded_pk()

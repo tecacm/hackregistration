@@ -86,6 +86,7 @@ This utilities will be divided in generic utilities and app specific utilities.
 #### Friends
 
 - **[Team matchmaking workflow](utility/app_specific/team_matchmaking.md)**: Organizer playbook for running the merge email campaign, monitoring the pool, and finalizing matches.
+- **[Track assignment workflow](utility/app_specific/track_assignment_workflow.md)**: Step-by-step guide for auto-assigning sponsor tracks and notifying teams.
 
 #### Event.Messages
  

@@ -25,13 +25,18 @@
                     <div class="alert alert-warning" role="alert">
                         {% translate "This group is full." %}
                     </div>
-                    {% if friends_code.can_select_track and track_selection_open %}
-                    <div class="mt-3">
-                        <a class="btn btn-success" href="{% url 'friends_track_selection' %}">{% translate 'Select Team Track' %}</a>
-                    </div>
-                    {% endif %}
                 {% endif %}
-                {% if members_count >= friends_max_capacity and show_devpost_until_start %}
+            {% else %}
+                <p>{% translate "Team members:" %} {{ members_count }}</p>
+            {% endif %}
+            {% if friends_code.can_select_track and track_selection_open %}
+                <div class="mt-3">
+                    <a class="btn btn-success" href="{% url 'friends_track_selection' %}">{% translate 'Select Team Track' %}</a>
+                </div>
+            {% elif track_selection_open %}
+                <p class="text-muted small mb-0">{% translate 'Track preferences unlock once every teammate is invited or confirmed.' %}</p>
+            {% endif %}
+            {% if friends_max_capacity and members_count >= friends_max_capacity and show_devpost_until_start %}
                     <div class="card mt-2">
                         <div class="card-body">
                             <h5 class="card-title">{% translate "Project Devpost" %}</h5>
@@ -49,7 +54,6 @@
                         </div>
                     </div>
                 {% endif %}
-            {% endif %}
             <ul>
                 {% for member in friends_code.get_members %}
                     <li>{{ member.user.get_full_name }}</li>

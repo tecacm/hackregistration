@@ -7,5 +7,10 @@
             <a href="{{ membership_url }}" class="button">{% trans "Manage team members" %}</a>
         </li>
     {% endif %}
+    {% if assign_tracks_url %}
+        <li>
+            <a href="{{ assign_tracks_url }}" class="button">{% trans "Auto-assign tracks" %}</a>
+        </li>
+    {% endif %}
     {{ block.super }}
 {% endblock %}
