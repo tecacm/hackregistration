@@ -1,4 +1,7 @@
 {{ subject }}
 
+{% if attachment_description or attachment_name %}[Attachment: {{ attachment_description|default:'Access pass' }}{% if attachment_name %} - {{ attachment_name }}{% endif %}]
+
+{% endif %}
 {% if include_discord %}Join our Discord: https://hackmty.com/discord
 {% endif %}

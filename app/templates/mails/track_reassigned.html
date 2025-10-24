@@ -1,0 +1,10 @@
+{% extends 'mails/base.html' %}
+{% block content %}
+<h2 style="font-family:sans-serif;font-size:22px;font-weight:600;margin:0 0 18px;color:#ffffff;">Track Update</h2>
+<p style="margin:0 0 15px;">Hi team <strong>{{ code }}</strong>, we wanted to let you know about an important update to your track assignment.</p>
+<p style="margin:0 0 15px;">Due to a system issue we identified, the <strong>{{ old_track }}</strong> track is now capped at a lower capacity. To keep things fair for every participant, we reassigned your team to the <strong>{{ new_track }}</strong> track.</p>
+<p style="margin:0 0 15px;">Your confirmed track: <strong>{{ new_track }}</strong></p>
+<p style="margin:0 0 15px;">We know schedule changes can be disruptive. If this creates a serious conflict for your team, please write to us and we will review it manually.</p>
+<p style="margin:0 0 18px;">Thank you for your understanding and flexibility!</p>
+<p style="margin:25px 0 5px;">The {{ app_hack }} Team<br>Contact: {{ contact_email|urlize }}</p>
+{% endblock %}

@@ -1,0 +1,13 @@
+Track Update
+============
+
+Team {{ code }},
+
+We found an issue with the original capacity of the {{ old_track }} track, so we had to move a few teams. Your team is now assigned to the {{ new_track }} track.
+
+New track: {{ new_track }}
+
+If the new assignment causes a serious problem, reply to this email or contact us at {{ contact_email }} and we will review it manually.
+
+Thanks for your flexibility!
+The {{ app_hack }} Team

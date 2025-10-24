@@ -40,22 +40,72 @@ class TrackPreferenceForm(BootstrapFormMixin, forms.Form):
     PLACEHOLDER_2 = _('Select second track')
     PLACEHOLDER_3 = _('Select third track')
 
-    def _with_placeholder(self, placeholder_text):
-        return [('', placeholder_text)] + list(FriendsCode.TRACKS)
-
     track_pref_1 = forms.ChoiceField(label=_('First choice'), choices=[])
     track_pref_2 = forms.ChoiceField(label=_('Second choice'), choices=[])
     track_pref_3 = forms.ChoiceField(label=_('Third choice'), choices=[])
 
     def __init__(self, *args, **kwargs):
+        track_counts = kwargs.pop('track_counts', None)
+        track_capacity = kwargs.pop('track_capacity', None)
         super().__init__(*args, **kwargs)
-        self.fields['track_pref_1'].choices = self._with_placeholder(self.PLACEHOLDER_1)
-        self.fields['track_pref_2'].choices = self._with_placeholder(self.PLACEHOLDER_2)
-        self.fields['track_pref_3'].choices = self._with_placeholder(self.PLACEHOLDER_3)
+        self._track_label_map = dict(FriendsCode.TRACKS)
+        all_track_codes = [code for code, _ in FriendsCode.TRACKS]
+
+        if track_counts is None:
+            track_counts = FriendsCode.track_counts()
+        if track_capacity is None:
+            track_capacity = FriendsCode.track_capacity()
+
+        self.track_counts = track_counts
+        self.track_capacity = track_capacity
+
+        self.full_track_codes = {
+            code for code in all_track_codes
+            if track_capacity.get(code) is not None
+            and track_counts.get(code, 0) >= track_capacity.get(code, 0)
+        }
+
+        initial_codes = []
+        for key in ('track_pref_1', 'track_pref_2', 'track_pref_3'):
+            value = self.initial.get(key)
+            if value in all_track_codes and value not in initial_codes:
+                initial_codes.append(value)
+
+        self.available_track_codes = []
+        for code in all_track_codes:
+            if code not in self.full_track_codes or code in initial_codes:
+                self.available_track_codes.append(code)
+
+        bound_only_codes = []
+        if self.is_bound:
+            for key in ('track_pref_1', 'track_pref_2', 'track_pref_3'):
+                value = self.data.get(key)
+                if value in all_track_codes and value not in self.available_track_codes:
+                    self.available_track_codes.append(value)
+                    bound_only_codes.append(value)
+
+        self.open_track_codes = [code for code in all_track_codes if code not in self.full_track_codes]
+        self._initial_code_set = set(initial_codes)
+        self._allowed_codes = set(self.open_track_codes) | self._initial_code_set
+        self._available_track_code_set = set(self.available_track_codes)
+        self._bound_only_codes = set(bound_only_codes)
+        self.has_minimum_preferences = len(self._allowed_codes) >= 3
+
+        self.fields['track_pref_1'].choices = self._build_choices(self.PLACEHOLDER_1)
+        self.fields['track_pref_2'].choices = self._build_choices(self.PLACEHOLDER_2)
+        self.fields['track_pref_3'].choices = self._build_choices(self.PLACEHOLDER_3)
         # Require explicit selection (empty not allowed)
         self.fields['track_pref_1'].required = True
         self.fields['track_pref_2'].required = True
         self.fields['track_pref_3'].required = True
+
+    def _build_choices(self, placeholder_text):
+        choices = [('', placeholder_text)]
+        for code in self.available_track_codes:
+            label = self._track_label_map.get(code)
+            if label is not None:
+                choices.append((code, label))
+        return choices
 
     def clean(self):
         cleaned = super().clean()
@@ -67,6 +117,13 @@ class TrackPreferenceForm(BootstrapFormMixin, forms.Form):
             raise forms.ValidationError(_('Please select all three track preferences.'))
         if len({p for p in prefs if p}) != 3:
             raise forms.ValidationError(_('Track preferences must be three different tracks.'))
+        unavailable = [track for track in prefs if track and track not in self._allowed_codes]
+        if unavailable:
+            labels = [self._track_label_map.get(code, code) for code in unavailable]
+            raise forms.ValidationError(
+                _('Some tracks are no longer available: %(tracks)s. Please choose a different track.'),
+                params={'tracks': ', '.join(labels)},
+            )
         return cleaned
 
 

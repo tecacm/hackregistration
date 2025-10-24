@@ -163,7 +163,7 @@ python manage.py runserver 0.0.0.0:8000
 | DB_ENGINE | sqlite3 / postgresql / mysql / oracle | sqlite3 |
 | DB_NAME / DB_USER / DB_PASSWORD / DB_HOST / DB_PORT | DB credentials (non‑sqlite) | — |
 | GOOGLE_RECAPTCHA_SITE_KEY / GOOGLE_RECAPTCHA_SECRET_KEY | reCAPTCHA keys | optional |
-| AXES_FAILURE_LIMIT | Brute force attempt limit | default 6 here |
+| AXES_FAILURE_LIMIT | Brute force attempt limit | default 15 here |
 | AXES_ENABLED | Enable django‑axes | not DEBUG |
 | ADMIN_URL | Secret admin path | secret/ |
 | OIDC_DISCOVERY_ENDPOINT | JWT/OIDC provider discovery | local default |

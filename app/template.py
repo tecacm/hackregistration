@@ -23,21 +23,22 @@ def add_file_nav(nav, request):
 
 def get_main_nav(request):
     nav = []
+    user = getattr(request, 'user', None)
     # Some code paths that render error pages pass a bare WSGIRequest
     # which may not have `user` attached (AuthenticationMiddleware not run).
     # Guard all access to `request.user` here so templates can render
     # friendly error pages instead of raising AttributeError.
-    if not hasattr(request, 'user') or not getattr(request.user, 'is_authenticated', False):
+    if not user or not getattr(user, 'is_authenticated', False):
         if getattr(settings, 'HACKATHON_LANDING', None) is not None:
             nav.append(('Landing page', getattr(settings, 'HACKATHON_LANDING')))
         return nav
     try:
-        if request.user.is_staff:
+        if user.is_staff:
             try:
                 nav.append(('Admin', reverse('admin:index')))
             except NoReverseMatch:
                 pass
-        if request.user.is_organizer():
+        if user.is_organizer():
             try:
                 nav.extend([('Review', reverse('application_review'))])
             except NoReverseMatch:
@@ -52,22 +53,30 @@ def get_main_nav(request):
         # back to a minimal nav so templates can continue rendering.
         if getattr(settings, 'HACKATHON_LANDING', None) is not None:
             nav.append(('Landing page', getattr(settings, 'HACKATHON_LANDING')))
-    if hasattr(request, 'user') and request.user.has_module_perms('event'):
+    user_perms_cache = None
+
+    def has_prefixed_perm(prefix):
+        nonlocal user_perms_cache
+        if user_perms_cache is None:
+            user_perms_cache = user.get_all_permissions()
+        return any(perm.startswith(prefix) for perm in user_perms_cache)
+
+    if user.has_perm('event.can_checkin') or has_prefixed_perm('event.can_checkin_'):
         try:
             nav.append(('Checkin', reverse('event:checkin_list')))
         except NoReverseMatch:
             pass
-        if is_installed('event.messages') and request.user.has_perm('event_messages.view_announcement'):
-            try:
-                nav.append(('Announcements', reverse('event:announcement_list')))
-            except NoReverseMatch:
-                pass
-        if is_installed('event.meals') and request.user.has_perm('meals.can_checkin_meals'):
-            try:
-                nav.append(('Meals', reverse('event:meals_list')))
-            except NoReverseMatch:
-                pass
-    user = getattr(request, 'user', None)
+    if is_installed('event.messages') and user.has_perm('event_messages.view_announcement'):
+        try:
+            nav.append(('Announcements', reverse('event:announcement_list')))
+        except NoReverseMatch:
+            pass
+    if is_installed('event.meals') and (user.has_perm('event.can_checkin_meal') or
+                                        has_prefixed_perm('event.can_checkin_meal_')):
+        try:
+            nav.append(('Meals', reverse('event:meals_list')))
+        except NoReverseMatch:
+            pass
     if user and getattr(user, 'is_authenticated', False):
         try:
             judge_group = user.groups.filter(name__in=['Judge', 'Organizer']).exists()
@@ -111,10 +120,10 @@ def get_main_nav(request):
             if judging_menu:
                 nav.append(('Judging', judging_menu))
 
-    if hasattr(request, 'user') and request.user.is_organizer():
-        if request.user.has_module_perms('tables'):
+    if user.is_organizer():
+        if user.has_module_perms('tables'):
             nav.extend([('Tables', reverse('tables_home'))])
-        if request.user.has_module_perms('stats'):
+        if user.has_module_perms('stats'):
             nav.extend([('Stats', reverse('stats_home'))])
     return nav
 

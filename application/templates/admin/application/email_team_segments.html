@@ -2,7 +2,7 @@
 {% load i18n %}
 {% block content %}
 <h1>{% translate 'Email small/no-team applicants' %}</h1>
-<form method="post" style="max-width: 900px;">
+<form method="post" enctype="multipart/form-data" style="max-width: 900px;">
   {% csrf_token %}
   <input type="hidden" name="action" value="email_team_segments">
   {% for pk in selected_pks %}
@@ -10,63 +10,93 @@
   {% endfor %}
   <input type="hidden" name="index" value="{{ index_val }}"/>
   {% if run_id %}<input type="hidden" name="run_id" value="{{ run_id }}"/>{% endif %}
+  {% if form.non_field_errors %}
+    <div class="form-row errors">
+      {{ form.non_field_errors }}
+    </div>
+  {% endif %}
   <fieldset class="module aligned">
     <div class="form-row">
       <label>{{ form.application_type.label }}:</label>
       {{ form.application_type }}
+      {{ form.application_type.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.max_team_size.label }}:</label>
       {{ form.max_team_size }}
+      {{ form.max_team_size.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.min_team_size.label }}:</label>
       {{ form.min_team_size }}
+      {{ form.min_team_size.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.exact_team_size.label }}:</label>
       {{ form.exact_team_size }}
+      {{ form.exact_team_size.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.include_no_team.label }}:</label>
       {{ form.include_no_team }}
+      {{ form.include_no_team.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.include_discord.label }}:</label>
       {{ form.include_discord }}
       {% if form.include_discord.help_text %}<p class="help">{{ form.include_discord.help_text }}</p>{% endif %}
+      {{ form.include_discord.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.only_full_missing_confirmed.label }}:</label>
       {{ form.only_full_missing_confirmed }}
       {% if form.only_full_missing_confirmed.help_text %}<p class="help">{{ form.only_full_missing_confirmed.help_text }}</p>{% endif %}
+      {{ form.only_full_missing_confirmed.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.statuses.label }}:</label>
       {{ form.statuses }}
       {% if form.statuses.help_text %}<p class="help">{{ form.statuses.help_text }}</p>{% endif %}
+      {{ form.statuses.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.subject.label }}:</label>
       {{ form.subject }}
+      {{ form.subject.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.message.label }}:</label>
       {{ form.message }}
+      {{ form.message.errors }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.image.label }}:</label>
+      {{ form.image }}
+      {% if form.image.help_text %}<p class="help">{{ form.image.help_text }}</p>{% endif %}
+      {{ form.image.errors }}
+    </div>
+    <div class="form-row">
+      <label>{{ form.image_alt.label }}:</label>
+      {{ form.image_alt }}
+      {% if form.image_alt.help_text %}<p class="help">{{ form.image_alt.help_text }}</p>{% endif %}
+      {{ form.image_alt.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.dry_run.label }}:</label>
       {{ form.dry_run }}
+      {{ form.dry_run.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.batch_size.label }}:</label>
       {{ form.batch_size }}
       {% if form.batch_size.help_text %}<p class="help">{{ form.batch_size.help_text }}</p>{% endif %}
+      {{ form.batch_size.errors }}
     </div>
     <div class="form-row">
       <label>{{ form.batch_delay_ms.label }}:</label>
       {{ form.batch_delay_ms }}
       {% if form.batch_delay_ms.help_text %}<p class="help">{{ form.batch_delay_ms.help_text }}</p>{% endif %}
+      {{ form.batch_delay_ms.errors }}
     </div>
   </fieldset>
   <div class="submit-row">
@@ -81,7 +111,7 @@
       <li>{{ email }}</li>
     {% endfor %}
   </ul>
-  {% if preview_subject or preview_html %}
+    {% if preview_subject or preview_html %}
     <hr>
     <h2>{% translate 'Email preview' %}</h2>
     {% if preview_subject %}
@@ -92,6 +122,9 @@
         {{ preview_html|safe }}
       </div>
     {% endif %}
+      {% if preview_attachment_name %}
+        <p><strong>{% translate 'Attachment' %}:</strong> {{ preview_attachment_name }}{% if preview_attachment_size_display %} ({{ preview_attachment_size_display }}){% endif %}</p>
+      {% endif %}
   {% endif %}
 {% endif %}
 {% endblock %}

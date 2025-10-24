@@ -164,6 +164,10 @@ if DB_ENGINE == 'sqlite3':
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db' / 'db.sqlite3',
+            'OPTIONS': {
+                # Allow longer wait for write locks so concurrent admin actions succeed.
+                'timeout': int(os.environ.get('SQLITE_TIMEOUT', '30')),
+            },
         }
     }
 else:
@@ -219,9 +223,9 @@ AUTHENTICATION_BACKENDS = [
 # django-axes configuration
 AXES_USERNAME_FORM_FIELD = 'user.models.User.USERNAME_FIELD'
 AXES_COOLOFF_TIME = timezone.timedelta(minutes=5)
-# Allow up to 6 failed login attempts before temporary lockout.
+# Allow up to 15 failed login attempts before temporary lockout.
 # Read from env if provided; ensure it is an integer.
-AXES_FAILURE_LIMIT = int(os.environ.get('AXES_FAILURE_LIMIT', '6'))
+AXES_FAILURE_LIMIT = int(os.environ.get('AXES_FAILURE_LIMIT', '15'))
 AXES_ENABLED = os.environ.get('AXES_ENABLED', not DEBUG)
 AXES_IP_BLACKLIST = os.environ.get('AXES_IP_BLACKLIST', '').split(',')
 SILENCED_SYSTEM_CHECKS = ['axes.W002']

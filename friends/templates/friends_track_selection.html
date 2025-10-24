@@ -12,7 +12,7 @@
         {% for key,label in group.TRACKS %}
           {% with detail=group.TRACK_DETAILS|get_item:key %}
             <div class="col">
-              <div class="border rounded-4 p-3 h-100">
+              <div class="border rounded-4 p-3 h-100 {% if key in full_track_codes %}bg-light text-muted{% endif %}">
                 <div class="d-flex align-items-center mb-3">
                   {% if detail and detail.logo %}
                     <div class="me-3 flex-shrink-0">
@@ -22,7 +22,10 @@
                   <div>
                     <h2 class="h6 mb-1">{{ label }}</h2>
                     <div class="text-muted small">
-                      {{ track_counts|get_item:key }} / {{ group.TRACK_CAPACITY|get_item:key }} {% translate 'teams assigned' %}
+                      {{ track_counts|get_item:key|default:0 }} / {{ group.TRACK_CAPACITY|get_item:key }} {% translate 'teams assigned' %}
+                      {% if key in full_track_codes %}
+                        <span class="badge bg-danger ms-2">{% translate 'Full' %}</span>
+                      {% endif %}
                     </div>
                   </div>
                 </div>
@@ -34,6 +37,9 @@
           {% endwith %}
         {% endfor %}
       </div>
+      {% if insufficient_tracks %}
+        <div class="alert alert-warning">{% translate 'Track preferences are temporarily unavailable because all tracks have reached capacity. Please contact the organizers for assistance.' %}</div>
+      {% endif %}
       {% if form %}
         <form method="post">
           {% csrf_token %}

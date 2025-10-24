@@ -8,10 +8,12 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
+from django.template.defaultfilters import filesizeformat
 from django.urls import path
 from django.utils.http import urlencode
 from django.utils.translation import gettext_lazy as _
 from django.db.models import Count, Q, F
+from django.db import OperationalError, connection
 
 from application import models
 from app.emails import Email, EmailList
@@ -158,9 +160,43 @@ class ApplicationAdmin(admin.ModelAdmin):
         )
         subject = forms.CharField(max_length=200, label=_('Email subject'))
         message = forms.CharField(widget=forms.Textarea(attrs={'rows': 8}), label=_('Email message'))
+        image = forms.ImageField(
+            required=False,
+            label=_('Attach image file'),
+            help_text=_('Optional image attachment (PNG/JPEG/WebP up to 5 MB). Recipients can download it from their email client.'),
+        )
+        image_alt = forms.CharField(
+            required=False,
+            max_length=200,
+            label=_('Attachment description'),
+            help_text=_('Briefly describe the attachment (e.g., “Access pass – show at check-in”). Required when an attachment is included.'),
+        )
         dry_run = forms.BooleanField(required=False, initial=False, help_text=_('Preview only; do not send'))
         batch_size = forms.IntegerField(min_value=1, initial=100, label=_('Batch size'), help_text=_('Send in chunks to avoid timeouts (e.g., 50-200).'))
         batch_delay_ms = forms.IntegerField(min_value=0, initial=500, label=_('Delay between batches (ms)'), help_text=_('Throttle requests to respect ESP rate limits.'))
+
+        MAX_IMAGE_BYTES = 5 * 1024 * 1024
+        ALLOWED_CONTENT_TYPES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
+
+        def clean_image(self):
+            image = self.cleaned_data.get('image')
+            if not image:
+                return image
+            content_type = getattr(image, 'content_type', '') or ''
+            if content_type and content_type.lower() not in self.ALLOWED_CONTENT_TYPES:
+                raise forms.ValidationError(_('Unsupported image type. Use PNG, JPEG, WebP, or GIF.'))
+            if image.size and image.size > self.MAX_IMAGE_BYTES:
+                raise forms.ValidationError(_('Image file is too large (max 5 MB).'))
+            return image
+
+        def clean(self):
+            cleaned = super().clean()
+            image = cleaned.get('image')
+            image_alt = (cleaned.get('image_alt') or '').strip()
+            if image and not image_alt:
+                self.add_error('image_alt', _('Provide a short description when attaching a file.'))
+            cleaned['image_alt'] = image_alt
+            return cleaned
 
     def email_team_segments(self, request, queryset):
         """Admin action: compose and queue an email broadcast to hackers in small teams or with no team.
@@ -182,7 +218,7 @@ class ApplicationAdmin(admin.ModelAdmin):
             'only_full_missing_confirmed': False,
         }
         if request.method == 'POST' and (request.POST.get('preview') or request.POST.get('send')):
-            form = self.SegmentEmailForm(request.POST)
+            form = self.SegmentEmailForm(request.POST, request.FILES)
             if form.is_valid():
                 app_type = form.cleaned_data['application_type']
                 max_size = form.cleaned_data['max_team_size']
@@ -193,6 +229,8 @@ class ApplicationAdmin(admin.ModelAdmin):
                 include_discord = form.cleaned_data['include_discord']
                 subject = form.cleaned_data['subject']
                 message = form.cleaned_data['message']
+                image = form.cleaned_data.get('image')
+                image_alt = form.cleaned_data.get('image_alt')
                 # Not used for queue creation but kept for UI clarity
                 _dry_run = form.cleaned_data['dry_run']
 
@@ -250,6 +288,12 @@ class ApplicationAdmin(admin.ModelAdmin):
                 recipient_emails.sort()
 
                 # Build email preview using the same templates/context
+                preview_attachment_name = ''
+                preview_attachment_size = 0
+                if image:
+                    preview_attachment_name = getattr(image, 'name', '') or ''
+                    preview_attachment_size = getattr(image, 'size', 0) or 0
+
                 context.update({
                     'form': form,
                     'preview_count': len(recipient_emails),
@@ -260,11 +304,20 @@ class ApplicationAdmin(admin.ModelAdmin):
                     'preview_subject': None,
                     'preview_html': None,
                     'include_discord': include_discord,
+                    'preview_attachment_name': preview_attachment_name,
+                    'preview_attachment_size': preview_attachment_size,
+                    'preview_attachment_size_display': filesizeformat(preview_attachment_size) if preview_attachment_size else '',
                 })
                 try:
                     preview_mail = Email(
                         'custom_broadcast',
-                        {'subject': subject, 'message': message, 'include_discord': include_discord},
+                        {
+                            'subject': subject,
+                            'message': message,
+                            'include_discord': include_discord,
+                            'attachment_description': image_alt,
+                            'attachment_name': preview_attachment_name,
+                        },
                         to='preview@example.com',
                         request=request,
                     )
@@ -288,7 +341,12 @@ class ApplicationAdmin(admin.ModelAdmin):
                         allowed_statuses=','.join(allowed_statuses),
                         edition_id=edition,
                         status=models.Broadcast.STATUS_PENDING,
+                        image_alt=image_alt,
+                        image_cid='',
                     )
+                    if image:
+                        image.seek(0)
+                        b.image.save(image.name, image, save=False)
                     # map email -> an application id (stable pick)
                     email_to_app = {}
                     for email, app_id in apps_qs.order_by('submission_date').values_list('user__email', 'pk'):
@@ -303,7 +361,10 @@ class ApplicationAdmin(admin.ModelAdmin):
                     if recipients:
                         models.BroadcastRecipient.objects.bulk_create(recipients, batch_size=1000)
                     b.total = len(recipients)
-                    b.save(update_fields=['total'])
+                    update_fields = ['total']
+                    if image:
+                        update_fields.append('image')
+                    b.save(update_fields=update_fields)
 
                     # Kick off background processing in-process so the user doesn't need to run a command
                     try:
@@ -949,6 +1010,24 @@ class BroadcastAdmin(admin.ModelAdmin):
     list_filter = ('status', 'created_at')
     search_fields = ('subject', 'run_id')
     readonly_fields = ('created_at', 'accepted')
+
+    def save_model(self, request, obj, form, change):
+        attempts = 5
+        delay = 0.2
+        for attempt in range(attempts):
+            try:
+                return super().save_model(request, obj, form, change)
+            except OperationalError as exc:
+                if 'database is locked' not in str(exc).lower() or attempt == attempts - 1:
+                    raise
+                # Reset connection and retry after a short backoff to mitigate sqlite contention.
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+                time.sleep(delay)
+                delay = min(delay * 2, 2.0)
+
 
 @admin.register(models.BroadcastRecipient)
 class BroadcastRecipientAdmin(admin.ModelAdmin):

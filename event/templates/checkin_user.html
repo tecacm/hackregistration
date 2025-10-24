@@ -37,6 +37,26 @@
                                     <div class="col-3 fw-bold pb-3 text-end" style="border: hidden"><p class="border-2" style="border: solid; border-color: transparent">{% translate 'Diet' %}</p></div>
                                     <div class="col-9 pb-3"><p style="width: fit-content; border-radius: 5px;" class="bg-diet-{{ app_user.diet|lower }} m-0">&nbsp;{{ app_user.get_diet_display_public }}&nbsp;</p></div>
                                 </div>
+                                {% if team_info %}
+                                    <div class="row m-0">
+                                        <div class="col-3 fw-bold pb-3 text-end">{% translate 'Team code' %}</div>
+                                        <div class="col-9 pb-3">{{ team_info.code }}</div>
+                                    </div>
+                                    <div class="row m-0">
+                                        <div class="col-3 fw-bold pb-3 text-end">{% translate 'Team members' %}</div>
+                                        <div class="col-9 pb-3">{{ team_info.members_count }}</div>
+                                    </div>
+                                    <div class="row m-0">
+                                        <div class="col-3 fw-bold pb-3 text-end">{% translate 'Track' %}</div>
+                                        <div class="col-9 pb-3">
+                                            {% if team_info.track_label %}
+                                                {{ team_info.track_label }}
+                                            {% else %}
+                                                {% translate 'Not assigned' %}
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endif %}
                                 {% if app_user.under_age_document_accepted %}
                                     <form method="post">
                                         {% csrf_token %}

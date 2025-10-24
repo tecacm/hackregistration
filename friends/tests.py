@@ -1,3 +1,4 @@
+import random
 from datetime import timedelta
 from unittest import mock
 
@@ -10,7 +11,8 @@ from django.urls import reverse
 from application.models import Application, ApplicationTypeConfig, Edition
 from friends.matchmaking import MatchmakingService
 from friends.models import FriendsCode, FriendsMergePoolEntry, FriendsMembershipLog
-from friends.services import TrackAssignmentService
+from friends.forms import TrackPreferenceForm
+from friends.services import TrackAssignmentService, TrackReassignmentService
 
 
 class MatchmakingTests(TestCase):
@@ -388,3 +390,222 @@ class TrackAssignmentServiceTests(TestCase):
         self.assertTrue(all(not record.track_assigned for record in FriendsCode.objects.filter(code=team_code)))
         self.assertTrue(all(record.track_assigned_date is None for record in FriendsCode.objects.filter(code=team_code)))
         mocked_email.assert_not_called()
+
+
+class TrackReassignmentServiceTests(TestCase):
+    def setUp(self):
+        cache.delete(Edition.get_default_edition.__qualname__)
+        self.edition = Edition.objects.create(name='Reassign Edition', order=210)
+        self.app_type = ApplicationTypeConfig.objects.create(name='Hacker')
+        self.now = timezone.now()
+
+    def _make_user(self, email):
+        User = get_user_model()
+        return User.objects.create_user(email=email, password='test12345')
+
+    def _create_application(self, user, status=Application.STATUS_CONFIRMED):
+        return Application.objects.create(
+            user=user,
+            type=self.app_type,
+            edition=self.edition,
+            status=status,
+        )
+
+    def _create_team(self, emails, assigned_track, alt_preferences):
+        users = []
+        for email in emails:
+            user = self._make_user(email)
+            users.append(user)
+            self._create_application(user)
+        first_record = FriendsCode.objects.create(user=users[0])
+        code = first_record.code
+        for user in users[1:]:
+            FriendsCode.objects.create(user=user, code=code)
+        FriendsCode.objects.filter(code=code).update(
+            track_pref_1=assigned_track,
+            track_pref_2=alt_preferences[0],
+            track_pref_3=alt_preferences[1],
+            track_pref_submitted_at=self.now,
+            track_assigned=assigned_track,
+            track_assigned_date=self.now,
+        )
+        return code, users
+
+    @mock.patch('friends.services.send_track_reassigned_email', return_value=1)
+    def test_reassigns_overflow_using_alternate_preferences(self, mocked_email):
+        capacity_override = {
+            FriendsCode.TRACK_FINTECH: 10,
+            FriendsCode.TRACK_SMART_LOGISTICS: 10,
+            FriendsCode.TRACK_SMART_OPERATIONS: 10,
+            FriendsCode.TRACK_SMART_CITIES: 2,
+            FriendsCode.TRACK_OPEN_INNOVATION: 2,
+        }
+
+        with mock.patch.object(FriendsCode, 'TRACK_CAPACITY', capacity_override):
+            teams = []
+            for idx in range(4):
+                code, users = self._create_team(
+                    [f'reassign_{idx}_a@example.com', f'reassign_{idx}_b@example.com'],
+                    FriendsCode.TRACK_OPEN_INNOVATION,
+                    (FriendsCode.TRACK_SMART_LOGISTICS, FriendsCode.TRACK_SMART_OPERATIONS),
+                )
+                teams.append((code, users))
+
+            service = TrackReassignmentService(now=self.now, rng=random.Random(42))
+            reassignments, skipped = service.run(send_emails=True)
+
+        self.assertFalse(skipped)
+        overflow = len(teams) - capacity_override[FriendsCode.TRACK_OPEN_INNOVATION]
+        self.assertEqual(len(reassignments), overflow)
+        self.assertEqual(mocked_email.call_count, overflow)
+
+        remaining_open = (
+            FriendsCode.objects
+            .filter(track_assigned=FriendsCode.TRACK_OPEN_INNOVATION)
+            .values('code')
+            .distinct()
+            .count()
+        )
+        self.assertLessEqual(remaining_open, capacity_override[FriendsCode.TRACK_OPEN_INNOVATION])
+
+        reassigned_codes = {entry['team_code'] for entry in reassignments}
+        for code in reassigned_codes:
+            assigned_tracks = set(
+                FriendsCode.objects.filter(code=code).values_list('track_assigned', flat=True)
+            )
+            self.assertEqual(len(assigned_tracks), 1)
+            new_track = assigned_tracks.pop()
+            self.assertNotIn(new_track, TrackReassignmentService.BANORTE_TRACKS)
+
+    @mock.patch('friends.services.send_track_reassigned_email', return_value=1)
+    def test_skips_teams_without_valid_alternatives(self, mocked_email):
+        capacity_override = {
+            FriendsCode.TRACK_FINTECH: 10,
+            FriendsCode.TRACK_SMART_LOGISTICS: 10,
+            FriendsCode.TRACK_SMART_OPERATIONS: 10,
+            FriendsCode.TRACK_SMART_CITIES: 0,
+            FriendsCode.TRACK_OPEN_INNOVATION: 1,
+        }
+
+        with mock.patch.object(FriendsCode, 'TRACK_CAPACITY', capacity_override):
+            code, _ = self._create_team(
+                ['stuck_a@example.com', 'stuck_b@example.com'],
+                FriendsCode.TRACK_SMART_CITIES,
+                (FriendsCode.TRACK_SMART_CITIES, FriendsCode.TRACK_OPEN_INNOVATION),
+            )
+            self._create_team(
+                ['other_a@example.com', 'other_b@example.com'],
+                FriendsCode.TRACK_SMART_CITIES,
+                (FriendsCode.TRACK_FINTECH, FriendsCode.TRACK_SMART_LOGISTICS),
+            )
+
+            service = TrackReassignmentService(now=self.now, rng=random.Random(7))
+            reassignments, skipped = service.run(send_emails=True)
+
+        self.assertEqual(len(reassignments), 1)
+        self.assertEqual(len(skipped), 1)
+        skipped_entry = skipped[0]
+        self.assertEqual(skipped_entry['team_code'], code)
+        self.assertEqual(skipped_entry['reason'], 'no_alternative')
+        mocked_email.assert_called_once()
+
+
+class TrackPreferenceFormTests(TestCase):
+    def setUp(self):
+        cache.delete(Edition.get_default_edition.__qualname__)
+        self.edition = Edition.objects.create(name='Form Edition', order=300)
+
+    def _base_counts(self):
+        return {code: 0 for code, _ in FriendsCode.TRACKS}
+
+    def _base_capacity(self):
+        return FriendsCode.track_capacity().copy()
+
+    def test_full_tracks_excluded_from_choices(self):
+        counts = self._base_counts()
+        capacities = self._base_capacity()
+        counts[FriendsCode.TRACK_OPEN_INNOVATION] = capacities[FriendsCode.TRACK_OPEN_INNOVATION]
+
+        form = TrackPreferenceForm(track_counts=counts, track_capacity=capacities)
+
+        choice_values = {value for value, _ in form.fields['track_pref_1'].choices}
+        self.assertNotIn(FriendsCode.TRACK_OPEN_INNOVATION, choice_values)
+
+    def test_existing_selection_preserved_even_when_full(self):
+        counts = self._base_counts()
+        capacities = self._base_capacity()
+        counts[FriendsCode.TRACK_OPEN_INNOVATION] = capacities[FriendsCode.TRACK_OPEN_INNOVATION]
+
+        form = TrackPreferenceForm(
+            initial={'track_pref_1': FriendsCode.TRACK_OPEN_INNOVATION},
+            track_counts=counts,
+            track_capacity=capacities,
+        )
+
+        choice_values = {value for value, _ in form.fields['track_pref_1'].choices}
+        self.assertIn(FriendsCode.TRACK_OPEN_INNOVATION, choice_values)
+
+    def test_validation_blocks_new_full_track_selection(self):
+        counts = self._base_counts()
+        capacities = self._base_capacity()
+        counts[FriendsCode.TRACK_OPEN_INNOVATION] = capacities[FriendsCode.TRACK_OPEN_INNOVATION]
+
+        form = TrackPreferenceForm(
+            data={
+                'track_pref_1': FriendsCode.TRACK_OPEN_INNOVATION,
+                'track_pref_2': FriendsCode.TRACK_FINTECH,
+                'track_pref_3': FriendsCode.TRACK_SMART_LOGISTICS,
+            },
+            track_counts=counts,
+            track_capacity=capacities,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('no longer available', ' '.join(form.errors['__all__']))
+
+    def test_insufficient_available_tracks_flagged(self):
+        counts = self._base_counts()
+        capacities = self._base_capacity()
+        full_codes = [FriendsCode.TRACK_OPEN_INNOVATION, FriendsCode.TRACK_SMART_CITIES, FriendsCode.TRACK_SMART_OPERATIONS]
+        for code in full_codes:
+            counts[code] = capacities[code]
+
+        form = TrackPreferenceForm(track_counts=counts, track_capacity=capacities)
+
+        self.assertFalse(form.has_minimum_preferences)
+
+
+class FriendsTrackSelectionViewTests(TestCase):
+    def setUp(self):
+        cache.delete(Edition.get_default_edition.__qualname__)
+        self.edition = Edition.objects.create(name='View Edition', order=400)
+        self.app_type = ApplicationTypeConfig.objects.create(name='Hacker')
+        self.user = get_user_model().objects.create_user('viewtester@example.com', 'pass12345')
+        self.user.email_verified = True
+        self.user.save(update_fields=['email_verified'])
+        Application.objects.create(
+            user=self.user,
+            type=self.app_type,
+            edition=self.edition,
+            status=Application.STATUS_INVITED,
+        )
+        Edition.get_default_edition = classmethod(lambda cls, force_update=False: self.edition.pk)
+        self.team_code = FriendsCode.objects.create(user=self.user).code
+        self.client = Client()
+        self.client.force_login(self.user, backend='django.contrib.auth.backends.ModelBackend')
+
+    def test_hides_form_when_not_enough_tracks(self):
+        limited_counts = {code: 0 for code, _ in FriendsCode.TRACKS}
+        capacities = FriendsCode.track_capacity().copy()
+        full_codes = [FriendsCode.TRACK_OPEN_INNOVATION, FriendsCode.TRACK_SMART_CITIES, FriendsCode.TRACK_SMART_OPERATIONS]
+        for code in full_codes:
+            limited_counts[code] = capacities[code]
+
+        with mock.patch.object(FriendsCode, 'track_counts', return_value=limited_counts), \
+             mock.patch.object(FriendsCode, 'track_capacity', return_value=capacities):
+            response = self.client.get(reverse('friends_track_selection'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context['form'])
+        self.assertTrue(response.context['insufficient_tracks'])
+        self.assertTrue(set(full_codes).issubset(set(response.context['full_track_codes'])))

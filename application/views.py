@@ -1,7 +1,6 @@
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, logout
-from django.contrib.auth.models import Group
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.storage import FileSystemStorage
@@ -398,9 +397,6 @@ class ApplicationChangeStatus(LoginRequiredMixin, View):
         with transaction.atomic():
             application.save()
             log.save()
-            if new_status == Application.STATUS_ATTENDED:
-                group = Group.objects.get_or_create(application.type.name)
-                group.user_set.add(application.user)
             if new_status == application.STATUS_CONFIRMED:
                 Application.objects.actual().exclude(uuid=application.get_uuid) \
                     .filter(user=application.user, type__compatible_with_others=False) \

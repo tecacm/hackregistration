@@ -1,6 +1,15 @@
 {% extends 'mails/base.html' %}
 {% block content %}
 <div id="email-content">
+  {% if attachment_description or attachment_name %}
+    <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #2d3748; border-radius: 8px; background-color: #111827;">
+      <p style="margin: 0; font-weight: 600;">{{ attachment_description|default:'Attachment' }}</p>
+      {% if attachment_name %}
+        <p style="margin: 4px 0 0 0; color: #9ca3af;">{{ attachment_name }}</p>
+      {% endif %}
+      <p style="margin: 8px 0 0 0;">Please download the attached file and keep it handy for check-in.</p>
+    </div>
+  {% endif %}
   <p>{{ message|linebreaksbr }}</p>
   {% if include_discord %}
     {% include 'mails/components/button.html' with url='https://hackmty.com/discord' text='Join our Discord' %}

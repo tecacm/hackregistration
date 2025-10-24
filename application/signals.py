@@ -37,3 +37,17 @@ def reload_active(sender, instance, **kwargs):
 def delete_draft_on_apply(sender, instance, created, **kwargs):
     if created:
         DraftApplication.objects.filter(user_id=instance.user_id).delete()
+
+
+@receiver(post_save, sender=Application, weak=False)
+def sync_volunteer_group(sender, instance, **kwargs):
+    if instance.user_id is None:
+        return
+    if instance.type.name.lower() != 'volunteer':
+        return
+    group, _ = Group.objects.get_or_create(name='Volunteer')
+    statuses_with_access = [Application.STATUS_CONFIRMED, Application.STATUS_ATTENDED]
+    if instance.status in statuses_with_access:
+        group.user_set.add(instance.user)
+        return
+    group.user_set.remove(instance.user)

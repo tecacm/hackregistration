@@ -2,6 +2,7 @@ import string
 from random import choice
 
 from django.contrib import messages
+from django.apps import apps
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -62,8 +63,35 @@ class CheckinUser(TemplateView):
                                      .values_list('type__name', flat=True))
             if user.is_organizer():
                 application_types.append('Organizer')
+            is_hacker = any(type_name and type_name.lower() == 'hacker' for type_name in application_types)
+            team_info = None
+            if is_hacker and apps.is_installed('friends'):
+                try:
+                    from friends.models import FriendsCode  # Local import keeps event app usable without friends.
+                    team_entry = FriendsCode.objects.filter(user=user).select_related('user').first()
+                    if team_entry is not None:
+                        edition_pk = Edition.get_default_edition()
+                        teammate_ids = list(
+                            FriendsCode.objects.filter(code=team_entry.code,
+                                                        user__application__edition_id=edition_pk)
+                            .values_list('user_id', flat=True)
+                            .distinct()
+                        )
+                        members_count = len(teammate_ids)
+                        if members_count == 0:
+                            members_count = 1
+                        track_labels = dict(FriendsCode.TRACKS)
+                        team_info = {
+                            'code': team_entry.code,
+                            'members_count': members_count,
+                            'track_code': team_entry.track_assigned,
+                            'track_label': track_labels.get(team_entry.track_assigned or '', ''),
+                        }
+                except Exception:
+                    team_info = None
             context.update({'app_user': user, 'types': application_types,
-                            'has_permission': self.has_permission(types=application_types)})
+                            'has_permission': self.has_permission(types=application_types),
+                            'team_info': team_info})
         except (User.DoesNotExist, ValueError):
             pass
         return context

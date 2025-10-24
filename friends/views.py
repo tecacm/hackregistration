@@ -159,6 +159,9 @@ class FriendsTrackSelectionView(LoginRequiredMixin, ParticipantTabsMixin, Templa
     template_name = 'friends_track_selection.html'
 
     def dispatch(self, request, *args, **kwargs):
+        permission_response = self.handle_permissions(request)
+        if permission_response:
+            return permission_response
         try:
             self.friends_code = FriendsCode.objects.get(user=request.user)
         except FriendsCode.DoesNotExist:
@@ -174,13 +177,17 @@ class FriendsTrackSelectionView(LoginRequiredMixin, ParticipantTabsMixin, Templa
     def get_current_tabs(self, **kwargs):
         return [('Applications', reverse('apply_home')), ('Friends', reverse('join_friends'))]
 
-    def get_form(self):
+    def get_form(self, track_counts=None, track_capacity=None):
         initial = {
             'track_pref_1': self.friends_code.track_pref_1 or '',
             'track_pref_2': self.friends_code.track_pref_2 or '',
             'track_pref_3': self.friends_code.track_pref_3 or '',
         }
-        return TrackPreferenceForm(initial=initial)
+        return TrackPreferenceForm(
+            initial=initial,
+            track_counts=track_counts,
+            track_capacity=track_capacity,
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -188,18 +195,35 @@ class FriendsTrackSelectionView(LoginRequiredMixin, ParticipantTabsMixin, Templa
         assigned = bool(friends_code.track_assigned)
         assigned_label = friends_code.get_track_assigned_display() if assigned else ''
         eligible = friends_code.can_select_track()
+        track_counts = FriendsCode.track_counts()
+        track_capacity = FriendsCode.track_capacity()
+        full_track_codes = {
+            code for code, _ in FriendsCode.TRACKS
+            if track_capacity.get(code) is not None
+            and track_counts.get(code, 0) >= track_capacity.get(code, 0)
+        }
+        form = kwargs.get('form')
         context.update({
             'group': friends_code,
             'assigned': assigned,
             'assigned_label': assigned_label,
             'track_selection_open': self.track_selection_open,
-            'track_counts': FriendsCode.track_counts(),
+            'track_counts': track_counts,
             'eligible': eligible,
+            'full_track_codes': list(full_track_codes),
         })
+        insufficient_tracks = False
         if not assigned and self.track_selection_open and eligible:
-            context.setdefault('form', self.get_form())
+            if form is None:
+                form = self.get_form(track_counts=track_counts, track_capacity=track_capacity)
+            insufficient_tracks = not getattr(form, 'has_minimum_preferences', True)
+            if insufficient_tracks and not form.is_bound:
+                context['form'] = None
+            else:
+                context['form'] = form
         else:
             context['form'] = None
+        context['insufficient_tracks'] = insufficient_tracks
         return context
 
     def post(self, request, *args, **kwargs):
@@ -213,7 +237,13 @@ class FriendsTrackSelectionView(LoginRequiredMixin, ParticipantTabsMixin, Templa
             messages.error(request, _('All teammates must be invited or confirmed before submitting preferences.'))
             return redirect('join_friends')
 
-        form = TrackPreferenceForm(request.POST)
+        track_counts = FriendsCode.track_counts()
+        track_capacity = FriendsCode.track_capacity()
+        form = TrackPreferenceForm(
+            request.POST,
+            track_counts=track_counts,
+            track_capacity=track_capacity,
+        )
         if form.is_valid():
             preferences = (
                 form.cleaned_data['track_pref_1'],

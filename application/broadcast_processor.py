@@ -1,4 +1,7 @@
+import mimetypes
+import os
 from time import sleep
+
 from django.utils import timezone
 
 from application.models import Broadcast, BroadcastRecipient, Application, ApplicationLog
@@ -26,6 +29,33 @@ def process_one_broadcast(broadcast_id: int, batch_size: int = 100, delay_ms: in
     retries = max(0, int(max_retries or 0))
 
     pending = BroadcastRecipient.objects.filter(broadcast=b, status=BroadcastRecipient.STATUS_PENDING)
+    attachment_payload = None
+    if b.image:
+        storage = b.image.storage
+        name = b.image.name
+        try:
+            local_path = storage.path(name)
+        except Exception:
+            local_path = None
+        mimetype = mimetypes.guess_type(name)[0] or 'application/octet-stream'
+        filename = os.path.basename(name) or 'broadcast-attachment'
+        attachment_payload = {
+            'filename': filename,
+            'mimetype': mimetype,
+        }
+        if local_path and os.path.exists(local_path):
+            attachment_payload['path'] = local_path
+            try:
+                with open(local_path, 'rb') as fh:
+                    attachment_payload['content'] = fh.read()
+            except Exception:
+                attachment_payload.pop('content', None)
+        else:
+            try:
+                with storage.open(name, 'rb') as fp:
+                    attachment_payload['content'] = fp.read()
+            except Exception:
+                attachment_payload = None
     accepted_total = int(b.accepted or 0)
     while True:
         batch = list(pending.values_list('id', 'email', 'application_id')[:bs])
@@ -34,7 +64,23 @@ def process_one_broadcast(broadcast_id: int, batch_size: int = 100, delay_ms: in
 
         elist = EmailList()
         for rid, email, _ in batch:
-            elist.add(Email('custom_broadcast', {'subject': b.subject, 'message': b.message, 'include_discord': b.include_discord}, to=email))
+            context = {
+                'subject': b.subject,
+                'message': b.message,
+                'include_discord': b.include_discord,
+            }
+            if attachment_payload:
+                context['attachment_description'] = b.image_alt
+                context['attachment_name'] = attachment_payload['filename']
+            attachments = None
+            if attachment_payload:
+                attachments = [{
+                    'filename': attachment_payload.get('filename'),
+                    'mimetype': attachment_payload.get('mimetype'),
+                    'content': attachment_payload.get('content'),
+                    'path': attachment_payload.get('path'),
+                }]
+            elist.add(Email('custom_broadcast', context, to=email, attachments=attachments))
 
         try:
             accepted = elist.send_all(fail_silently=False) or 0
