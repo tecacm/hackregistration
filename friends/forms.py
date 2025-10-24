@@ -89,15 +89,25 @@ class TrackPreferenceForm(BootstrapFormMixin, forms.Form):
         self._allowed_codes = set(self.open_track_codes) | self._initial_code_set
         self._available_track_code_set = set(self.available_track_codes)
         self._bound_only_codes = set(bound_only_codes)
-        self.has_minimum_preferences = len(self._allowed_codes) >= 3
+        self.has_minimum_preferences = len(self.open_track_codes) > 0
+        self.required_choices = min(3, len(self.open_track_codes)) if self.open_track_codes else 0
+        self.available_track_count = len(self.open_track_codes)
 
-        self.fields['track_pref_1'].choices = self._build_choices(self.PLACEHOLDER_1)
-        self.fields['track_pref_2'].choices = self._build_choices(self.PLACEHOLDER_2)
-        self.fields['track_pref_3'].choices = self._build_choices(self.PLACEHOLDER_3)
-        # Require explicit selection (empty not allowed)
-        self.fields['track_pref_1'].required = True
-        self.fields['track_pref_2'].required = True
-        self.fields['track_pref_3'].required = True
+        placeholders = [self.PLACEHOLDER_1, self.PLACEHOLDER_2, self.PLACEHOLDER_3]
+        field_names = ['track_pref_1', 'track_pref_2', 'track_pref_3']
+        for idx, (field_name, placeholder) in enumerate(zip(field_names, placeholders), start=1):
+            field = self.fields[field_name]
+            field.choices = self._build_choices(placeholder)
+            is_required = idx <= max(self.required_choices, 1) if self.has_minimum_preferences else False
+            # When fewer tracks remain than slots, only require as many selections as there are available tracks
+            if self.required_choices and idx > self.required_choices:
+                is_required = False
+            field.required = is_required
+            if not is_required:
+                field.widget.attrs.setdefault('data-optional', 'true')
+            if not self.has_minimum_preferences:
+                field.disabled = True
+                field.required = False
 
     def _build_choices(self, placeholder_text):
         choices = [('', placeholder_text)]
@@ -113,10 +123,15 @@ class TrackPreferenceForm(BootstrapFormMixin, forms.Form):
         p2 = cleaned.get('track_pref_2')
         p3 = cleaned.get('track_pref_3')
         prefs = [p1, p2, p3]
-        if '' in prefs or None in prefs:
-            raise forms.ValidationError(_('Please select all three track preferences.'))
-        if len({p for p in prefs if p}) != 3:
-            raise forms.ValidationError(_('Track preferences must be three different tracks.'))
+        selected = [pref for pref in prefs if pref]
+        required_count = self.required_choices if self.has_minimum_preferences else 0
+        if required_count and len(selected) < required_count:
+            raise forms.ValidationError(
+                _('Please select %(count)s track preference%(plural)s.'),
+                params={'count': required_count, 'plural': '' if required_count == 1 else 's'},
+            )
+        if len(set(selected)) != len(selected):
+            raise forms.ValidationError(_('Track preferences must be different.'))
         unavailable = [track for track in prefs if track and track not in self._allowed_codes]
         if unavailable:
             labels = [self._track_label_map.get(code, code) for code in unavailable]

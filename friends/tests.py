@@ -563,7 +563,7 @@ class TrackPreferenceFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('no longer available', ' '.join(form.errors['__all__']))
 
-    def test_insufficient_available_tracks_flagged(self):
+    def test_form_accepts_when_only_two_tracks_available(self):
         counts = self._base_counts()
         capacities = self._base_capacity()
         full_codes = [FriendsCode.TRACK_OPEN_INNOVATION, FriendsCode.TRACK_SMART_CITIES, FriendsCode.TRACK_SMART_OPERATIONS]
@@ -572,7 +572,9 @@ class TrackPreferenceFormTests(TestCase):
 
         form = TrackPreferenceForm(track_counts=counts, track_capacity=capacities)
 
-        self.assertFalse(form.has_minimum_preferences)
+        self.assertTrue(form.has_minimum_preferences)
+        self.assertEqual(form.required_choices, 2)
+        self.assertEqual(form.available_track_count, 2)
 
 
 class FriendsTrackSelectionViewTests(TestCase):
@@ -594,7 +596,7 @@ class FriendsTrackSelectionViewTests(TestCase):
         self.client = Client()
         self.client.force_login(self.user, backend='django.contrib.auth.backends.ModelBackend')
 
-    def test_hides_form_when_not_enough_tracks(self):
+    def test_shows_form_when_some_tracks_available(self):
         limited_counts = {code: 0 for code, _ in FriendsCode.TRACKS}
         capacities = FriendsCode.track_capacity().copy()
         full_codes = [FriendsCode.TRACK_OPEN_INNOVATION, FriendsCode.TRACK_SMART_CITIES, FriendsCode.TRACK_SMART_OPERATIONS]
@@ -606,6 +608,8 @@ class FriendsTrackSelectionViewTests(TestCase):
             response = self.client.get(reverse('friends_track_selection'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.context['form'])
-        self.assertTrue(response.context['insufficient_tracks'])
+        self.assertIsNotNone(response.context['form'])
+        self.assertFalse(response.context['insufficient_tracks'])
+        self.assertEqual(response.context['available_track_count'], 2)
+        self.assertEqual(response.context['required_preference_count'], 2)
         self.assertTrue(set(full_codes).issubset(set(response.context['full_track_codes'])))

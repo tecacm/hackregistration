@@ -41,6 +41,15 @@
         <div class="alert alert-warning">{% translate 'Track preferences are temporarily unavailable because all tracks have reached capacity. Please contact the organizers for assistance.' %}</div>
       {% endif %}
       {% if form %}
+        {% if available_track_count and required_preference_count and required_preference_count < 3 %}
+          <div class="alert alert-info">
+            {% blocktrans count available_track_count=available_track_count %}
+            Only {{ available_track_count }} track remains available. Rank the remaining track in order of preference.
+            {% plural %}
+            Only {{ available_track_count }} tracks remain available. Rank the remaining tracks in order of preference.
+            {% endblocktrans %}
+          </div>
+        {% endif %}
         <form method="post">
           {% csrf_token %}
           {% include 'components/bootstrap5_form.html' with form=form %}

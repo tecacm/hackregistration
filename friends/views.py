@@ -213,6 +213,8 @@ class FriendsTrackSelectionView(LoginRequiredMixin, ParticipantTabsMixin, Templa
             'full_track_codes': list(full_track_codes),
         })
         insufficient_tracks = False
+        available_track_count = 0
+        required_preference_count = 0
         if not assigned and self.track_selection_open and eligible:
             if form is None:
                 form = self.get_form(track_counts=track_counts, track_capacity=track_capacity)
@@ -221,8 +223,12 @@ class FriendsTrackSelectionView(LoginRequiredMixin, ParticipantTabsMixin, Templa
                 context['form'] = None
             else:
                 context['form'] = form
+                available_track_count = getattr(form, 'available_track_count', 0)
+                required_preference_count = getattr(form, 'required_choices', 0)
         else:
             context['form'] = None
+        context['available_track_count'] = available_track_count
+        context['required_preference_count'] = required_preference_count
         context['insufficient_tracks'] = insufficient_tracks
         return context
 
