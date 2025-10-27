@@ -36,7 +36,7 @@
             {% elif track_selection_open %}
                 <p class="text-muted small mb-0">{% translate 'Track preferences unlock once every teammate is invited or confirmed.' %}</p>
             {% endif %}
-            {% if friends_max_capacity and members_count >= friends_max_capacity and show_devpost_until_start %}
+            {% if team_has_track and show_devpost_until_start %}
                     <div class="card mt-2">
                         <div class="card-body">
                             <h5 class="card-title">{% translate "Project Devpost" %}</h5>

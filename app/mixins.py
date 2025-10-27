@@ -147,4 +147,6 @@ class PermissionRequiredMixin(OverridePermissionRequiredMixin):
             permissions = permissions.get(self.request.method, [])
             if isinstance(permissions, str):
                 permissions = [permissions, ]
+        elif isinstance(permissions, str):
+            permissions = [permissions, ]
         return permissions

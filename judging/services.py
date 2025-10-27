@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import csv
 import io
+from collections import defaultdict
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Dict, Iterable, Tuple
 
 from django.db import transaction
+from django.db.models import Avg, Count, Q
 
 from application.models import Edition
 from friends.models import FriendsCode
@@ -23,6 +26,14 @@ from .models import (
 class EvaluationResult:
     evaluation: JudgingEvaluation
     created: bool
+
+
+@dataclass(frozen=True)
+class TrackStanding:
+    track: str
+    project: JudgingProject
+    average_score: Decimal
+    evaluation_count: int
 
 
 def upsert_evaluation(
@@ -168,23 +179,24 @@ def _team_members_with_metadata(team_code: str):
     return members
 
 
-def ensure_project_for_team_member(user) -> JudgingProject | None:
-    """Fetch or lazily create a JudgingProject for the participant's team."""
-    membership = FriendsCode.objects.filter(user=user).first()
-    if membership is None:
+def _canonical_team_entry(team_code: str) -> FriendsCode | None:
+    normalized = (team_code or '').strip()
+    if not normalized:
         return None
-
-    team_code = membership.code
-    canonical = (
+    return (
         FriendsCode.objects
-        .filter(code=team_code)
+        .filter(code__iexact=normalized)
         .order_by('id')
         .select_related('user')
         .first()
     )
+
+
+def _ensure_project_from_canonical(canonical: FriendsCode | None) -> JudgingProject | None:
     if canonical is None:
         return None
 
+    team_code = canonical.code
     edition_id = Edition.get_default_edition()
     metadata = {
         'team_code': team_code,
@@ -205,7 +217,6 @@ def ensure_project_for_team_member(user) -> JudgingProject | None:
         defaults=defaults,
     )
 
-    # Ensure metadata stays fresh if team composition or links change.
     fields_to_update = []
     desired_track = canonical.track_assigned or ''
     if project.track != desired_track:
@@ -225,3 +236,91 @@ def ensure_project_for_team_member(user) -> JudgingProject | None:
         project.save(update_fields=fields_to_update)
 
     return project
+
+
+def ensure_project_for_team_member(user) -> JudgingProject | None:
+    """Fetch or lazily create a JudgingProject for the participant's team."""
+    membership = FriendsCode.objects.filter(user=user).first()
+    if membership is None:
+        return None
+    canonical = _canonical_team_entry(membership.code)
+    return _ensure_project_from_canonical(canonical)
+
+
+def ensure_project_for_team_code(team_code: str) -> JudgingProject | None:
+    """Fetch or lazily create a JudgingProject using a team (friends) code."""
+    canonical = _canonical_team_entry(team_code)
+    return _ensure_project_from_canonical(canonical)
+
+
+def _as_decimal(value) -> Decimal:
+    if isinstance(value, Decimal):
+        return value
+    if value is None:
+        return Decimal('0')
+    return Decimal(str(value))
+
+
+def compute_track_standings(
+    edition: Edition,
+    *,
+    include_untracked: bool = False,
+) -> Dict[str, Tuple[TrackStanding, ...]]:
+    scored_filter = Q(
+        evaluations__status__in=[
+            JudgingEvaluation.STATUS_SUBMITTED,
+            JudgingEvaluation.STATUS_RELEASED,
+        ]
+    )
+    projects = (
+        JudgingProject.objects
+        .filter(edition=edition, is_active=True)
+        .annotate(
+            scored_count=Count('evaluations', filter=scored_filter, distinct=True),
+            average_score=Avg('evaluations__total_score', filter=scored_filter),
+        )
+        .filter(scored_count__gt=0)
+        .select_related('edition')
+    )
+
+    standings = defaultdict(list)
+    for project in projects:
+        track_value = (project.track or '').strip()
+        if not track_value and not include_untracked:
+            continue
+        avg_score = _as_decimal(project.average_score)
+        evaluation_count = int(project.scored_count or 0)
+        standing = TrackStanding(
+            track=track_value,
+            project=project,
+            average_score=avg_score,
+            evaluation_count=evaluation_count,
+        )
+        standings[track_value].append(standing)
+
+    ordered = {}
+    for track, entries in standings.items():
+        sorted_entries = sorted(
+            entries,
+            key=lambda item: (
+                item.average_score,
+                item.evaluation_count,
+                -item.project.pk,
+            ),
+            reverse=True,
+        )
+        ordered[track] = tuple(sorted_entries)
+    return ordered
+
+
+def determine_track_winners(
+    edition: Edition,
+    *,
+    include_untracked: bool = False,
+) -> Dict[str, TrackStanding]:
+    standings = compute_track_standings(edition, include_untracked=include_untracked)
+    return {
+        track: entries[0]
+        for track, entries in standings.items()
+        if entries
+    }

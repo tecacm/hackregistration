@@ -74,13 +74,40 @@
                     </p>
                     <form method="post" id="qr-manual-form" class="d-flex flex-column gap-3">
                         {% csrf_token %}
+                        <input type="hidden" name="lookup_action" value="badge" />
                         <div>
                             <label class="form-label fw-semibold" for="id_qr_code">{% translate "Badge value" %}</label>
-                            <input type="text" id="id_qr_code" name="qr_code" class="form-control form-control-lg" placeholder="ABC123 or https://..." autocomplete="off" inputmode="text" required>
+                            <input type="text" id="id_qr_code" name="qr_code" class="form-control form-control-lg" placeholder="ABC123 or https://..." autocomplete="off" inputmode="text">
                             <div class="form-text">{% translate "Use the text printed underneath the QR code or the encoded link provided to judges." %}</div>
                         </div>
                         <button type="submit" class="btn btn-success btn-lg w-100">
                             <i class="bi bi-arrow-right-circle me-2"></i>{% translate "Open scoring" %}
+                        </button>
+                    </form>
+                    <hr class="text-body-secondary">
+                    <form method="post" id="team-code-form" class="d-flex flex-column gap-3">
+                        {% csrf_token %}
+                        <input type="hidden" name="lookup_action" value="team" />
+                        <div>
+                            <label class="form-label fw-semibold" for="id_team_code">{% translate "Team code" %}</label>
+                            <input type="text" id="id_team_code" name="team_code" class="form-control form-control-lg" placeholder="TEAM-123" autocomplete="off" inputmode="text">
+                            <div class="form-text">{% translate "Enter the friends/team code shared with the hackers (e.g., TEAM-123)." %}</div>
+                        </div>
+                        <button type="submit" class="btn btn-outline-success btn-lg w-100">
+                            <i class="bi bi-people-fill me-2"></i>{% translate "Find by team" %}
+                        </button>
+                    </form>
+                    <hr class="text-body-secondary">
+                    <form method="post" id="project-lookup-form" class="d-flex flex-column gap-3">
+                        {% csrf_token %}
+                        <input type="hidden" name="lookup_action" value="project" />
+                        <div>
+                            <label class="form-label fw-semibold" for="id_project_lookup">{% translate "Project, table, or Devpost" %}</label>
+                            <input type="text" id="id_project_lookup" name="project_lookup" class="form-control form-control-lg" placeholder="Table 12, Atlas, Fintech" autocomplete="off" inputmode="text">
+                            <div class="form-text">{% translate "Search by table location (e.g., A12), project name, or part of the Devpost URL." %}</div>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary btn-lg w-100">
+                            <i class="bi bi-search me-2"></i>{% translate "Search projects" %}
                         </button>
                     </form>
                 </div>

@@ -105,11 +105,11 @@ class TrackAssignmentService:
                 continue
             representative = members[0]
             preferences = (
-                representative.track_pref_1,
-                representative.track_pref_2,
-                representative.track_pref_3,
+                representative.track_pref_1 or '',
+                representative.track_pref_2 or '',
+                representative.track_pref_3 or '',
             )
-            if not all(preferences):
+            if not preferences[0]:
                 skipped.append({'team_code': code, 'reason': 'missing_preferences'})
                 continue
             if not representative.can_select_track():

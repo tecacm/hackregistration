@@ -117,6 +117,29 @@ class JudgingViewTests(JudgingTestCase):
 		evaluation = JudgingEvaluation.objects.get(project=self.project, judge=self.judge)
 		self.assertEqual(evaluation.status, JudgingEvaluation.STATUS_SUBMITTED)
 
+	def test_manual_team_lookup_redirects_to_score(self):
+		self.client.force_login(self.judge, backend='django.contrib.auth.backends.ModelBackend')
+		member = self._create_user('teamlookup@example.com')
+		FriendsCode.objects.create(user=member, code='TEAM-LOOK')
+		response = self.client.post(reverse('judging:launch'), {
+			'lookup_action': 'team',
+			'team_code': 'team-look',
+		})
+		self.assertEqual(response.status_code, 302)
+		project = JudgingProject.objects.get(friends_code__code='TEAM-LOOK')
+		self.assertIn(reverse('judging:score', args=[project.pk]), response['Location'])
+
+	def test_manual_project_lookup_by_table_redirects(self):
+		self.client.force_login(self.judge, backend='django.contrib.auth.backends.ModelBackend')
+		self.project.table_location = 'A12'
+		self.project.save(update_fields=['table_location'])
+		response = self.client.post(reverse('judging:launch'), {
+			'lookup_action': 'project',
+			'project_lookup': 'A12',
+		})
+		self.assertEqual(response.status_code, 302)
+		self.assertIn(reverse('judging:score', args=[self.project.pk]), response['Location'])
+
 
 class JudgingTrackRubricTests(JudgingTestCase):
 	def setUp(self):

@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block subtitle %}{% translate "Project directory" %}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column gap-4">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body d-flex flex-column flex-xl-row justify-content-between align-items-start align-items-xl-center gap-4">
+            <div class="d-flex flex-column gap-2">
+                <div class="text-uppercase small fw-semibold text-primary">{% translate "Judging" %}</div>
+                <h1 class="h3 mb-0">{% translate "Project directory" %}</h1>
+                <p class="text-muted mb-0">{% translate "Look up any team’s friends code and Devpost link before scoring." %}</p>
+            </div>
+            <div class="d-flex flex-column gap-2 align-self-stretch align-items-start align-items-xl-end">
+                <span class="badge bg-secondary-subtle text-secondary-emphasis px-3 py-2">
+                    {{ projects|length }} {% translate "projects" %}
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <form method="get" class="card border-0 shadow-sm">
+        <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-end">
+            <div class="flex-grow-1 w-100 w-lg-auto">
+                <label for="track-select" class="form-label fw-semibold mb-1">{% translate "Track filter" %}</label>
+                <select id="track-select" name="track" class="form-select" onchange="this.form.submit()">
+                    <option value="">{% translate "All tracks" %}</option>
+                    {% for value, label in available_tracks %}
+                        <option value="{{ value }}" {% if value == selected_track %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <button type="submit" class="btn btn-outline-primary">
+                    <i class="bi bi-filter-circle me-2"></i>{% translate "Apply" %}
+                </button>
+            </div>
+        </div>
+    </form>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-transparent fw-semibold d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
+            <span>{% translate "Projects" %}</span>
+            <span class="text-muted small">{% translate "Copy the Devpost link into the judging form if scanners fail." %}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col">{% translate "Project" %}</th>
+                        <th scope="col">{% translate "Track" %}</th>
+                        <th scope="col">{% translate "Friends code" %}</th>
+                        <th scope="col">{% translate "Devpost" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in projects %}
+                        <tr>
+                            <td class="fw-semibold">{{ item.project.name }}</td>
+                            <td class="text-muted">{{ item.track_label }}</td>
+                            <td class="font-monospace">{{ item.friends_code|default:_('n/a') }}</td>
+                            <td>
+                                {% if item.devpost_url %}
+                                    <a href="{{ item.devpost_url }}" class="link-primary" target="_blank" rel="noopener">{{ item.devpost_url }}</a>
+                                {% else %}
+                                    <span class="text-muted">{% translate "Not provided" %}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center py-5 text-muted">{% translate "No projects available." %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -169,10 +169,16 @@ class JudgesGuideView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         user = self.request.user
         if not getattr(user, 'is_authenticated', False):
             return False
-        if user.is_superuser:
+        if user.is_superuser or user.is_staff:
             return True
         try:
-            return user.groups.filter(name__in=['Judge', 'Organizer']).exists()
+            if user.groups.filter(name__in=['Judge', 'Judges', 'Organizer', 'Organizers']).exists():
+                return True
+            if user.groups.filter(name__icontains='judge').exists():
+                return True
+            if user.groups.filter(name__icontains='organizer').exists():
+                return True
+            return user.application_set.actual().filter(type__name__iexact='Judge').exists()
         except Exception:
             return False
 

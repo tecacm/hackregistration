@@ -217,7 +217,9 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def is_organizer(self):
         try:
-            return self.groups.filter(name='Organizer').exists()
+            if self.groups.filter(name__in=['Organizer', 'Organizers']).exists():
+                return True
+            return self.groups.filter(name__icontains='organizer').exists()
         except Exception:
             # Defensive: if the groups relation or DB lookup fails for any reason
             # (including unexpected recursion), treat user as not an organizer

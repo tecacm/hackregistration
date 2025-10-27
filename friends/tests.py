@@ -326,6 +326,34 @@ class TrackAssignmentServiceTests(TestCase):
         self.assertEqual(sorted(call_args[2]), sorted(user.email for user in users))
 
     @mock.patch('friends.services.send_track_assigned_email', return_value=1)
+    def test_assigns_when_secondary_preferences_missing(self, mocked_email):
+        team_code, users = self._create_team(
+            ['solo@example.com'],
+            (
+                FriendsCode.TRACK_SMART_LOGISTICS,
+                '',
+                '',
+            ),
+        )
+
+        service = TrackAssignmentService(now=self.now)
+        assignments, skipped = service.run()
+
+        self.assertFalse(skipped)
+        self.assertEqual(len(assignments), 1)
+        assignment = assignments[0]
+        self.assertEqual(assignment['team_code'], team_code)
+        self.assertEqual(assignment['track_code'], FriendsCode.TRACK_SMART_LOGISTICS)
+        self.assertEqual(assignment['preference_used'], 1)
+
+        stored = list(FriendsCode.objects.filter(code=team_code))
+        self.assertTrue(all(record.track_assigned == FriendsCode.TRACK_SMART_LOGISTICS for record in stored))
+        self.assertTrue(all(record.track_assigned_date is not None for record in stored))
+        mocked_email.assert_called_once()
+        recipients = mocked_email.call_args[0][2]
+        self.assertEqual(sorted(recipients), sorted(user.email for user in users))
+
+    @mock.patch('friends.services.send_track_assigned_email', return_value=1)
     def test_assigns_next_preference_when_top_choice_full(self, mocked_email):
         capacity_override = {
             FriendsCode.TRACK_FINTECH: 1,

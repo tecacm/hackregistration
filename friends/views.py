@@ -14,7 +14,7 @@ from application.mixins import ApplicationPermissionRequiredMixin
 from application.models import Application, Edition, ApplicationTypeConfig, ApplicationLog
 from application.views import ParticipantTabsMixin
 from friends.filters import FriendsInviteTableFilter
-from friends.forms import FriendsForm, TrackPreferenceForm
+from friends.forms import DevpostForm, FriendsForm, TrackPreferenceForm
 from friends.matchmaking import MatchmakingService
 from friends.models import FriendsCode
 from friends.tables import FriendInviteTable
@@ -53,6 +53,8 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
             context.update({
                 "friends_code": friends_code,
                 "members_count": members.count(),
+                "team_has_track": bool(friends_code.track_assigned),
+                "devpost_form": DevpostForm(initial={"devpost_url": friends_code.devpost_url} if friends_code.devpost_url else None),
             })
         except FriendsCode.DoesNotExist:
             context.update({
@@ -67,10 +69,15 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
 
     def post(self, request, **kwargs):
         action = request.POST.get("action")
-        if action not in ["create", "join", "leave"]:
+        handlers = {
+            "create": self.create,
+            "join": self.join,
+            "leave": self.leave,
+            "set_devpost": self.set_devpost,
+        }
+        if action not in handlers:
             return HttpResponseBadRequest()
-        method = getattr(self, action)
-        return method()
+        return handlers[action]()
 
     def create(self, **kwargs):
         default = {"user": self.request.user}
@@ -104,6 +111,27 @@ class JoinFriendsView(LoginRequiredMixin, ParticipantTabsMixin, TemplateView):
         except FriendsCode.DoesNotExist:
             pass
         return redirect(reverse("join_friends"))
+
+    def set_devpost(self, **kwargs):
+        try:
+            friends_code = FriendsCode.objects.get(user=self.request.user)
+        except FriendsCode.DoesNotExist:
+            messages.error(self.request, _('You need a team before setting a Devpost URL.'))
+            return redirect(reverse("join_friends"))
+
+        if not friends_code.track_assigned:
+            messages.error(self.request, _('Your team needs an assigned track before adding a Devpost project link.'))
+            return redirect(reverse("join_friends"))
+
+        form = DevpostForm(self.request.POST)
+        if form.is_valid():
+            FriendsCode.objects.filter(code=friends_code.code).update(devpost_url=form.cleaned_data['devpost_url'])
+            messages.success(self.request, _('Devpost URL saved.'))
+            return redirect(reverse("join_friends"))
+
+        context = self.get_context_data()
+        context["devpost_form"] = form
+        return self.render_to_response(context)
 
 
 class FriendsListInvite(ApplicationPermissionRequiredMixin, IsOrganizerMixin, ReviewApplicationTabsMixin,

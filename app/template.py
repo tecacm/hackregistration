@@ -79,12 +79,20 @@ def get_main_nav(request):
             pass
     if user and getattr(user, 'is_authenticated', False):
         try:
-            judge_group = user.groups.filter(name__in=['Judge', 'Organizer']).exists()
+            judge_group = (
+                user.groups.filter(name__in=['Judge', 'Judges', 'Organizer', 'Organizers']).exists()
+                or user.groups.filter(name__icontains='judge').exists()
+            )
         except Exception:
             judge_group = False
+        if not judge_group and not user.is_staff:
+            try:
+                judge_group = user.application_set.actual().filter(type__name__iexact='Judge').exists()
+            except Exception:
+                judge_group = False
         is_judge = user.is_staff or judge_group
         try:
-            judge_admin = user.is_staff or user.groups.filter(name='Organizer').exists()
+            judge_admin = user.is_staff or user.groups.filter(name__icontains='organizer').exists()
         except Exception:
             judge_admin = user.is_staff
 
@@ -99,6 +107,10 @@ def get_main_nav(request):
             except NoReverseMatch:
                 pass
             try:
+                judging_menu.append(('Project directory', reverse('judging:project_directory')))
+            except NoReverseMatch:
+                pass
+            try:
                 judging_menu.append(('Judges guide', reverse('event:judges_guide')))
             except NoReverseMatch:
                 pass
@@ -108,6 +120,7 @@ def get_main_nav(request):
                 admin_links = []
                 for label, url_name in [
                     ('Manage projects', 'judging:manage_projects'),
+                    ('Track winners', 'judging:track_winners'),
                     ('Release window', 'judging:release_window'),
                     ('Export CSV', 'judging:export'),
                 ]:
